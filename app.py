@@ -6,8 +6,11 @@ Main Entry Point:
 - Role-Based Access Control (RBAC) via core.permissions
 - View-only mode banner สำหรับหน้าที่อ่านได้อย่างเดียว
 - Audit logging (login / logout / navigation)
+
+★ v2: เพิ่ม Logo EXAT ใน Sidebar + Footer
 """
 import streamlit as st
+import base64
 from pathlib import Path
 from datetime import datetime, timedelta
 import importlib
@@ -17,6 +20,27 @@ from core.permissions import (
     get_accessible_pages, get_landing_page,
     get_role_badge, get_role_description,
 )
+
+
+# ============================================================
+# ★ LOGO HELPER
+# ============================================================
+def _get_logo_base64() -> str:
+    """อ่านไฟล์ Logo เป็น base64 string (รองรับหลาย path)"""
+    possible_paths = [
+        Path(__file__).parent / "assets" / "exat_logo.png",
+        Path(__file__).parent.parent / "assets" / "exat_logo.png",
+        Path("assets") / "exat_logo.png",
+    ]
+    for logo_path in possible_paths:
+        if logo_path.exists():
+            try:
+                with open(logo_path, "rb") as f:
+                    return base64.b64encode(f.read()).decode()
+            except Exception:
+                continue
+    return ""
+
 
 # ============================================================
 # PAGE CONFIG
@@ -58,9 +82,9 @@ st.markdown(
            Page layout — ให้ header ไม่ถูกตัด
            ═══════════════════════════════════════════════════ */
 
-        /* Main content area — เว้นระยะบนให้ header แสดงได้เต็ม */
+        /* Main content area */
         .block-container {
-            padding-top: 3.5rem !important;      /* ← เพิ่มจาก 1.5rem เป็น 3.5rem */
+            padding-top: 3.5rem !important;
             padding-bottom: 2rem !important;
             max-width: 100% !important;
         }
@@ -73,20 +97,50 @@ st.markdown(
             overflow: visible !important;
         }
 
-        /* Streamlit top header — ทำให้โปร่งใส ไม่ทับ */
+        /* Streamlit top header */
         header[data-testid="stHeader"] {
             background: transparent !important;
             height: 3rem !important;
         }
 
-        /* Toolbar (hamburger) — ให้ยังคงใช้งานได้ */
+        /* Toolbar (hamburger) */
         div[data-testid="stToolbar"] {
             top: 0.5rem !important;
         }
 
-        /* ซ่อน decoration bar ถ้ามี */
+        /* ซ่อน decoration bar */
         div[data-testid="stDecoration"] {
             display: none !important;
+        }
+
+        /* ═══════════════════════════════════════════════════
+           ★ Logo styling
+           ═══════════════════════════════════════════════════ */
+        .exat-logo-sidebar {
+            text-align: center;
+            padding: 8px 0 4px 0;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #E0E6ED;
+        }
+        .exat-logo-sidebar img {
+            width: 100px;
+            height: auto;
+            opacity: 0.95;
+        }
+        .exat-logo-footer {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+            width: 100%;
+            padding: 10px 0 6px 0;
+            border-top: 1px solid #E0E6ED;
+            margin-top: 20px;
+        }
+        .exat-logo-footer img {
+            height: 28px;
+            width: auto;
+            opacity: 0.7;
         }
     </style>
     """,
@@ -190,16 +244,15 @@ ALL_PAGES = {
     "💵 เบิกจ่าย (1.5)":          "p10_payment",
     "🕓 Timeline":                "p11_timeline",
     "📋 Audit Log":              "p12_audit",
-    "🗑️ Voided Records":          "p14_void_registry",   # ← เพิ่ม
+    "🗑️ Voided Records":          "p14_void_registry",
     "🔧 Settings":                "p13_settings",
 }
 
 # ============================================================
-# ROLE-BASED MENU FILTERING (ใช้ permissions matrix)
+# ROLE-BASED MENU FILTERING
 # ============================================================
 ACCESSIBLE_PAGES = get_accessible_pages(role, ALL_PAGES)
 
-# ถ้า role ไม่มีสิทธิ์เข้าถึงหน้าใดเลย → error
 if not ACCESSIBLE_PAGES:
     st.error(
         f"🚫 Role `{role}` ไม่มีสิทธิ์เข้าถึงเมนูใดเลย — "
@@ -212,8 +265,21 @@ if not ACCESSIBLE_PAGES:
 
 
 # ============================================================
-# SIDEBAR — Header
+# ★ SIDEBAR — Header (with Logo)
 # ============================================================
+logo_b64 = _get_logo_base64()
+
+if logo_b64:
+    st.sidebar.markdown(
+        f"""
+        <div class="exat-logo-sidebar">
+            <img src="data:image/png;base64,{logo_b64}"
+                 alt="EXAT Logo">
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 st.sidebar.title("🎯 CCH Monitoring")
 st.sidebar.caption("โครงการจ้างที่ปรึกษากำกับดูแล CCH")
 
@@ -269,7 +335,6 @@ if login_time_str:
 # ============================================================
 st.sidebar.markdown("---")
 
-# ป้องกันเลือกเมนูที่ไม่มีสิทธิ์ (role เปลี่ยน หรือ session ค้าง)
 nav_key = "nav_choice"
 if nav_key in st.session_state and st.session_state[nav_key] not in ACCESSIBLE_PAGES:
     st.session_state.pop(nav_key, None)
@@ -284,7 +349,7 @@ current_page_key = ACCESSIBLE_PAGES[choice]
 
 
 # ============================================================
-# GUARD — Double check (defense in depth)
+# GUARD — Double check
 # ============================================================
 if not can_view(current_page_key, role):
     st.error(f"🔒 คุณไม่มีสิทธิ์เข้าถึงหน้านี้ (`{current_page_key}`)")
@@ -325,7 +390,7 @@ with st.sidebar.expander("🔑 เปลี่ยนรหัสผ่าน", e
 
 
 # ============================================================
-# SIDEBAR — Permission Info (แสดงสิทธิ์ของ role ปัจจุบัน)
+# SIDEBAR — Permission Info
 # ============================================================
 with st.sidebar.expander("🔐 สิทธิ์ของฉัน", expanded=False):
     st.markdown(f"**Role:** {role_badge}")
@@ -376,16 +441,28 @@ if st.sidebar.button(
 
 
 # ============================================================
-# SIDEBAR — Footer
+# ★ SIDEBAR — Footer (with Logo)
 # ============================================================
 st.sidebar.markdown("---")
+
+if logo_b64:
+    st.sidebar.markdown(
+        f"""
+        <div style="text-align:center;padding:6px 0 4px 0;">
+            <img src="data:image/png;base64,{logo_b64}"
+                 style="width:70px;height:auto;opacity:0.6;"
+                 alt="EXAT">
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 st.sidebar.caption("v1.0 · Evidence-based Monitoring")
 st.sidebar.caption(f"© 2026 กทพ. · {datetime.now().strftime('%Y')}")
 
 
 # ============================================================
 # VIEW-ONLY BANNER
-# (แสดงเมื่อ role ไม่มีสิทธิ์ edit ในหน้านั้น — ยกเว้นหน้าที่เป็น read-only อยู่แล้ว)
 # ============================================================
 READ_ONLY_PAGES = {"p01_dashboard", "p11_timeline", "p12_audit"}
 
@@ -436,11 +513,26 @@ except Exception as e:
 
 
 # ============================================================
-# FOOTER
+# ★ FOOTER (with Logo)
 # ============================================================
-st.markdown("---")
-st.caption(
-    f"🕒 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} · "
-    f"👤 {full_name} ({role_badge}) · "
-    f"📄 {choice}"
-)
+if logo_b64:
+    st.markdown(
+        f"""
+        <div class="exat-logo-footer">
+            <img src="data:image/png;base64,{logo_b64}" alt="EXAT">
+            <div style="font-size:11.5px;color:#888;">
+                🕒 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} · 
+                👤 {full_name} ({role_badge}) · 
+                📄 {choice}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown("---")
+    st.caption(
+        f"🕒 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} · "
+        f"👤 {full_name} ({role_badge}) · "
+        f"📄 {choice}"
+    )
