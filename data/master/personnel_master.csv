@@ -1,0 +1,12 @@
+﻿personnel_id,category,position,quantity,qualification,responsibility,name,updated_at
+PSN-KP-01,Key Personnel,หัวหน้าโครงการ (Project Manager),1,"ปริญญาโท+, ประสบการณ์ ≥ 10 ปี","บริหารโครงการทั้งหมด, ประสานคณะกรรมการ",(รอระบุ),2026-08-18 09:00:00
+PSN-KP-02,Key Personnel,รองหัวหน้าโครงการ (Deputy PM),1,"ปริญญาโท+, ประสบการณ์ ≥ 7 ปี","สนับสนุน PM, ดูแลคุณภาพ deliverable",(รอระบุ),2026-08-18 09:00:00
+PSN-KP-03,Key Personnel,ผู้เชี่ยวชาญด้านการเงิน (Financial Advisory),1,"CPA/CFA, ประสบการณ์ ≥ 7 ปี","วิเคราะห์ BM, Cost-Revenue, การเงิน",(รอระบุ),2026-08-18 09:00:00
+PSN-KP-04,Key Personnel,ผู้เชี่ยวชาญ Compliance (Regulatory),1,ประสบการณ์ด้านกำกับ ≥ 7 ปี,"Compliance Roadmap, Regulatory Reporting",(รอระบุ),2026-08-18 09:00:00
+PSN-KP-05,Key Personnel,ผู้เชี่ยวชาญด้านกฎหมาย (Legal),1,"นิติศาสตร์, ประสบการณ์ ≥ 7 ปี","สัญญา, PF/EM License, กฎหมายการเงิน",(รอระบุ),2026-08-18 09:00:00
+PSN-KP-06,Key Personnel,ผู้เชี่ยวชาญด้าน IT / Technology,1,"IT, ประสบการณ์ ≥ 7 ปี","CCH System, Audit Trail, Data Retention",(รอระบุ),2026-08-18 09:00:00
+PSN-KP-07,Key Personnel,ผู้เชี่ยวชาญด้านความเสี่ยง (Risk Management),1,ประสบการณ์ ≥ 7 ปี,"Risk Assessment, Risk Strategy",(รอระบุ),2026-08-18 09:00:00
+PSN-KP-08,Key Personnel,ผู้เชี่ยวชาญ AML/CFT,1,CAMS หรือเทียบเท่า,"AML Policy, KYC/CDD, ปปง.",(รอระบุ),2026-08-18 09:00:00
+PSN-AS-01,Assistant,ผู้ช่วยโครงการ 1,1,"ปริญญาตรี+, ประสบการณ์ ≥ 2 ปี","ประสานงาน, จัดทำเอกสาร",(รอระบุ),2026-08-18 09:00:00
+PSN-AS-02,Assistant,ผู้ช่วยโครงการ 2,1,"ปริญญาตรี+, ประสบการณ์ ≥ 2 ปี","สนับสนุน workshop, จัดการข้อมูล",(รอระบุ),2026-08-18 09:00:00
+PSN-CO-01,Coordinator,ผู้ประสานงานโครงการ,1,ประสบการณ์ประสานงาน ≥ 3 ปี,"ประสานงานทุกฝ่าย, นัดประชุม, ติดตามกำหนด",(รอระบุ),2026-08-18 09:00:00

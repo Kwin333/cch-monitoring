@@ -1,0 +1,6 @@
+﻿deliverable_id,milestone_id,tor_clause,deliverable_name,description,required_output,required_evidence,weight,planned_start,planned_finish,actual_start,actual_finish,status,compliance_status,reviewer,review_date,review_comment,updated_at
+DLV-MTG-01,MLS-01,1.3 / 4.4,บันทึกการประชุม Kick-off,จัดประชุม Kick-off ภายใน 15 วัน,รายงานการประชุม,MEETING-KICKOFF-001,5,2026-10-01,2026-10-15,,,Not Started,Not Checked,,,,2026-10-01 09:00:00
+DLV-MTG-02,MLS-02,1.3,ประชุมกำกับดูแลครั้งที่ 1 (Steering),ประชุมติดตามความก้าวหน้า,รายงานการประชุม + มติ,MEETING-STEER-002,5,2026-11-01,2026-11-30,,,Not Started,Not Checked,,,,2026-10-01 09:00:00
+DLV-ACC-01,MLS-01,1.5 / 6.1,เอกสารเบิกจ่ายงวดที่ 1,รวบรวมเอกสารเพื่อขอเบิกจ่ายงวด 1,ชุดเอกสารเบิกจ่าย,ACCEPT-M1-REQ,10,2026-10-16,2026-10-30,,,Not Started,Not Checked,,,,2026-10-01 09:00:00
+DLV-ACC-02,MLS-02,1.5 / 6.2,เอกสารเบิกจ่ายงวดที่ 2,รวบรวมเอกสารเพื่อขอเบิกจ่ายงวด 2,ชุดเอกสารเบิกจ่าย,ACCEPT-M2-REQ,15,2027-01-01,2027-01-30,,,Not Started,Not Checked,,,,2026-10-01 09:00:00
+DLV-OPS-01,MLS-03,4.1,CCH Operational Workflow,แผนผังขั้นตอนปฏิบัติงาน,Process Flow,REPORT-M3-WF,25,2026-12-01,2027-03-30,,,Not Started,Not Checked,,,,2026-10-01 09:00:00

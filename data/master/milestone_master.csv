@@ -1,0 +1,6 @@
+﻿milestone_id,project_id,milestone_no,milestone_name,tor_reference,due_day,due_date,payment_percent,payment_amount,submission_date,acceptance_date,payment_date,status,updated_at
+MLS-01,PRJ-2026-0001,1,Inception Report,ข้อ 7.1,30,2026-08-31,10,1897110.0,,,,Not Started,2026-08-18 09:00:00
+MLS-02,PRJ-2026-0001,2,Progress Report I,ข้อ 7.2,120,2026-12-16,30,5691330.0,,,,Not Started,2026-08-18 09:00:00
+MLS-03,PRJ-2026-0001,3,Interim Report,ข้อ 7.3,180,2027-02-14,30,5691330.0,,,,Not Started,2026-08-18 09:00:00
+MLS-04,PRJ-2026-0001,4,Progress Report II,ข้อ 7.4,300,2027-06-14,20,3794220.0,,,,Not Started,2026-08-18 09:00:00
+MLS-05,PRJ-2026-0001,5,Final Report,ข้อ 7.5,360,2027-08-13,10,1897110.0,,,,Not Started,2026-08-18 09:00:00

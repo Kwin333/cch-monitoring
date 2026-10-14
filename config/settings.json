@@ -1,0 +1,50 @@
+{
+  "project_defaults": {
+    "duration_days": 360,
+    "contract_value": 18971100.00,
+    "contract_date": "2026-08-18",
+    "project_start_date": "2026-08-18",
+    "project_end_date": "2027-08-13",
+    "consultant_name": "จุฬาลงกรณ์มหาวิทยาลัย",
+    "contract_no": "TOR-CCH-2569",
+    "project_manager": "ผู้จัดการโครงการ กทพ."
+  },
+  "milestones": [
+    { "no": 1, "name": "Inception Report",   "due_day": 30,  "percent": 10, "due_date": "2026-08-31" },
+    { "no": 2, "name": "Progress Report I",  "due_day": 120, "percent": 30, "due_date": "2026-12-16" },
+    { "no": 3, "name": "Interim Report",     "due_day": 180, "percent": 30, "due_date": "2027-02-14" },
+    { "no": 4, "name": "Progress Report II", "due_day": 300, "percent": 20, "due_date": "2027-06-14" },
+    { "no": 5, "name": "Final Report",       "due_day": 360, "percent": 10, "due_date": "2027-08-13" }
+  ],
+  "warning_thresholds": {
+    "green_variance_pct": -3.0,
+    "yellow_variance_pct": -10.0,
+    "red_variance_pct": -10.01,
+    "due_soon_days": 7
+  },
+  "payment": {
+    "guarantee_deduction_pct": 10.0
+  },
+
+  "★ penalty": {
+    "late_delivery_pct_per_day": 0.10,
+    "tor_reference": "ข้อ 10",
+    "description": "อัตราค่าปรับ 0.10% ของราคาจ้างต่อวัน (กรณีส่งช้า)"
+  },
+
+  "★ document_submission": {
+    "M1-M4": { "hard_copies": 2, "usb_copies": 2, "format": "Word+PDF" },
+    "M5":    { "hard_copies": 2, "usb_copies": 10, "format": "Word+PDF" },
+    "tor_reference": "ข้อ 7"
+  },
+
+  "★ personnel": {
+    "key_personnel_count": 8,
+    "assistant_count": 2,
+    "coordinator_count": 1,
+    "total_count": 11,
+    "tor_reference": "ข้อ 12"
+  },
+
+  "user_roles": ["admin", "monitoring", "reviewer", "committee", "supervisor", "readonly"]
+}

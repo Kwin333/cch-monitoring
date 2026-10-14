@@ -1,0 +1,11 @@
+﻿void_id,record_type,record_id,reason,voided_by,voided_at,mode
+VOID-20261009101530-G-01,deliverable,DLV-MTG-01,ทดสอบ,admin,2026-10-09 10:15:30,soft
+VOID-20261009101536-G-02,deliverable,DLV-MTG-02,ทดสอบ,admin,2026-10-09 10:15:36,soft
+VOID-20261009101537-C-01,deliverable,DLV-ACC-01,ทดสอบ,admin,2026-10-09 10:15:37,soft
+VOID-20261009101537-C-02,deliverable,DLV-ACC-02,ทดสอบ,admin,2026-10-09 10:15:37,soft
+VOID-20261009101537-S-01,deliverable,DLV-OPS-01,ทดสอบ,admin,2026-10-09 10:15:37,soft
+VOID-20261009101537-S-02,deliverable,DLV-OPS-02,ทดสอบ,admin,2026-10-09 10:15:37,soft
+VOID-20261009101554-0001,progress,PRG-20261008-0001,Cleanup orphaned records — 2026-10-09,admin,2026-10-09 10:15:54,soft
+VOID-20261009101554-0002,progress,PRG-20261015-0002,Cleanup orphaned records — 2026-10-09,admin,2026-10-09 10:15:54,soft
+VOID-20261009101554-0003,progress,PRG-20261022-0003,Cleanup orphaned records — 2026-10-09,admin,2026-10-09 10:15:54,soft
+VOID-20261009102923--001,deliverable,DLV-001,ทดสอบ,admin,2026-10-09 10:29:23,soft
