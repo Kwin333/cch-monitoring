@@ -7,6 +7,7 @@
 - ✅ ส่งให้คณะกรรมการ / ปิดการตรวจ → แสดง banner แทนบังคับกรอกวัน
 - ✅ Validation: ถ้า action ต้องนัด → ต้องมีวันที่
 - ✅ History แสดง next_action + next_review_date
+- ★ v2 — เพิ่ม Soft Delete + Restore (เหมือนส่วนอื่น)
 """
 import streamlit as st
 import pandas as pd
@@ -65,17 +66,13 @@ NEXT_ACTIONS = [
     "อื่น ๆ",
 ]
 
-# ── เงื่อนไขการแสดง "นัดตรวจรอบถัดไป" ──
-# ต้องระบุวันนัด (บังคับ)
 ACTIONS_REQUIRE_DATE = (
     "ส่งกลับให้ที่ปรึกษาแก้ไข",
     "รอหลักฐานเพิ่มเติม",
 )
-# ตัวเลือก (ไม่บังคับ)
 ACTIONS_OPTIONAL_DATE = (
     "อื่น ๆ",
 )
-# ที่เหลือ (ส่งให้ กก. / ปิดการตรวจ) → ไม่ต้องนัด
 
 REVIEW_FIELDS = [
     "timestamp", "review_id", "deliverable_id", "milestone_id", "tor_clause",
@@ -155,28 +152,23 @@ def _next_version(did: str, rv_df: pd.DataFrame) -> str:
 
 def _validate_review(data: dict):
     """Validate ข้อมูลการ review"""
-    # BR: ต้องแก้ไข / ไม่ผ่าน → ต้องมี Comment
     if data["result"] in ("ต้องแก้ไข", "ไม่ผ่าน") and not (data.get("comment") or "").strip():
         raise ValidationError(
             "⚠️ เลือก 'ต้องแก้ไข' หรือ 'ไม่ผ่าน' ต้องระบุ Comment / Finding"
         )
 
-    # BR: ผ่าน → ต้องติ๊ก checklist ครบ 8
     if data["result"] == "ผ่าน" and int(data.get("checklist_score", 0)) < 8:
         raise ValidationError(
             f"⚠️ เลือก 'ผ่าน' ต้องติ๊ก checklist ครบ 8 ข้อ "
             f"(ปัจจุบัน {data.get('checklist_score', 0)}/8)"
         )
 
-    # BR: Non-Compliant → ต้องมี Finding
     if data["compliance_status"] == "Non-Compliant" and not (data.get("comment") or "").strip():
         raise ValidationError("⚠️ Compliance = Non-Compliant ต้องระบุ Finding")
 
-    # BR: ต้องระบุชื่อผู้ตรวจ
     if not (data.get("reviewer") or "").strip():
         raise ValidationError("⚠️ ต้องระบุชื่อผู้ตรวจ")
 
-    # ★ BR: ถ้า action ต้องนัด → ต้องมีวันที่
     if data.get("next_action") in ACTIONS_REQUIRE_DATE:
         if not (data.get("next_review_date") or "").strip():
             raise ValidationError(
@@ -207,6 +199,10 @@ def render():
     if dl_df.empty:
         st.info("ℹ️ ยังไม่มี Deliverable — เพิ่มที่เมนู **📦 Deliverable Master** ก่อน")
         return
+
+    # ★ v2: role check สำหรับ soft delete
+    role = st.session_state.get("role", "")
+    can_delete = role in ("admin", "monitoring")
 
     # ============================================================
     # KPI TILES
@@ -265,12 +261,13 @@ def render():
     st.markdown("---")
 
     # ============================================================
-    # TABS
+    # TABS — ★ v2: 5 tabs (เพิ่ม Soft Delete)
     # ============================================================
-    t1, t2, t3, t4 = st.tabs([
+    t1, t2, t3, t4, t5 = st.tabs([
         "📋 ภาพรวมการตรวจ",
         "🔍 ตรวจชิ้นงาน",
         "📜 ประวัติการตรวจ",
+        "🗑️ ลบ (Soft)",         # ★ ใหม่
         "📥 CSV",
     ])
 
@@ -337,7 +334,6 @@ def render():
         )
         dl_row = dl_df[dl_df["deliverable_id"] == dl_sel].iloc[0]
 
-        # --- ข้อมูลอ้างอิง ---
         info1, info2, info3, info4 = st.columns(4)
         with info1:
             st.markdown(f"**📌 Milestone:** `{dl_row['milestone_id']}`")
@@ -348,7 +344,6 @@ def render():
         with info4:
             st.markdown(f"**📊 Status:** {_status_badge(dl_row['status'])}")
 
-        # --- ประวัติการตรวจเดิม ---
         prev_reviews = rv_df[rv_df["deliverable_id"] == dl_sel] if not rv_df.empty else rv_df
         if not prev_reviews.empty:
             st.markdown("---")
@@ -374,9 +369,7 @@ def render():
 
         auto_version = _next_version(dl_sel, rv_df)
 
-        # ═══════════════════════════════════════════════════════════
-        # ★ D. NEXT ACTION (นอก form — เพื่อให้ dynamic ได้)
-        # ═══════════════════════════════════════════════════════════
+        # ★ D. NEXT ACTION (นอก form)
         st.markdown("**D. การดำเนินการต่อ**")
 
         next_action = st.selectbox(
@@ -385,7 +378,6 @@ def render():
             key="rv_next_action",
         )
 
-        # ---- ตรวจเงื่อนไข & แสดง field "นัดตรวจรอบถัดไป" แบบ dynamic ----
         next_review_date_str = ""
 
         if next_action in ACTIONS_REQUIRE_DATE:
@@ -417,7 +409,6 @@ def render():
             next_review_date_str = str(next_review_date)
 
         else:
-            # ส่งให้ กก. / ปิดการตรวจ → ไม่ต้องนัด
             st.markdown(
                 f"""
                 <div style="background:#E8F5E9;border-left:4px solid #2E7D32;
@@ -436,11 +427,7 @@ def render():
 
         st.markdown("---")
 
-        # ═══════════════════════════════════════════════════════════
-        # FORM: A, B, C
-        # ═══════════════════════════════════════════════════════════
         with st.form("rv_form", clear_on_submit=False):
-            # ---- A. Reference ----
             st.markdown("**A. ข้อมูลอ้างอิง**")
             cA1, cA2, cA3 = st.columns(3)
             version = cA1.text_input("เวอร์ชัน", value=auto_version, key="rv_version")
@@ -449,7 +436,6 @@ def render():
                                        value=st.session_state.user,
                                        key="rv_reviewer")
 
-            # ---- B. Checklist 8 ข้อ ----
             st.markdown("**B. Checklist 8 ข้อ**")
             checks = {}
             cc1, cc2 = st.columns(2)
@@ -461,7 +447,6 @@ def render():
                     key=f"rv_chk_{dl_sel}_{i}",
                 )
 
-            # ---- C. Result ----
             st.markdown("**C. ผลการตรวจ**")
             cC1, cC2 = st.columns(2)
             result = cC1.radio("ผลรวม", RESULTS, horizontal=False, key="rv_result")
@@ -480,7 +465,7 @@ def render():
                 use_container_width=True,
             )
 
-        # ---- SAVE LOGIC (นอก form) ----
+        # ---- SAVE LOGIC ----
         if submitted:
             try:
                 checklist_score = sum(1 for v in checks.values() if v)
@@ -514,7 +499,7 @@ def render():
                 }
                 rv_repo.append(row)
 
-                # --- Update Deliverable Master ---
+                # Update Deliverable Master
                 new_status = dl_row["status"]
                 if result == "ผ่าน":
                     new_status = "Accepted"
@@ -524,6 +509,8 @@ def render():
                     new_status = "Under Review"
 
                 new_dl = dl_row.to_dict()
+                # ★ ลบ display columns ก่อน save (defense in depth)
+                new_dl.pop("_latest_progress", None)
                 new_dl.update({
                     "status":             new_status,
                     "compliance_status":  compliance,
@@ -534,7 +521,6 @@ def render():
                 })
                 dl_repo.upsert(new_dl, key="deliverable_id")
 
-                # --- Audit Log ---
                 append_audit(
                     st.session_state.user,
                     "REVIEW",
@@ -554,7 +540,6 @@ def render():
                     f"({checklist_score}/8 checklist)"
                 )
 
-                # ---- Flash: แสดง next action ที่บันทึก ----
                 if next_review_date_str:
                     st.info(
                         f"📅 **นัดตรวจรอบถัดไป:** {next_review_date_str} "
@@ -612,7 +597,6 @@ def render():
             if "result" in h_show.columns:
                 h_show["result"] = h_show["result"].apply(_result_badge)
 
-            # ★ แสดง next_review_date ว่างเป็น "—"
             if "next_review_date" in h_show.columns:
                 h_show["next_review_date"] = h_show["next_review_date"].apply(
                     lambda x: x if (x and str(x).strip() not in ("", "None", "nan")) else "—"
@@ -640,9 +624,154 @@ def render():
             st.dataframe(version_summary, use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB 4 — CSV
+    # ★ TAB 4 — SOFT DELETE (ใหม่)
     # ============================================================
     with t4:
+        st.markdown("### 🗑️ Soft Delete (ซ่อนจาก UI)")
+        st.caption(
+            "⚠️ ข้อมูลยังอยู่ใน DB — ซ่อนใน UI เท่านั้น สามารถกู้คืนได้"
+        )
+
+        if not can_delete:
+            st.warning(
+                f"🔒 ฟังก์ชันนี้ใช้ได้เฉพาะ admin / monitoring "
+                f"(Role ปัจจุบัน: `{role}`)"
+            )
+        elif rv_df.empty:
+            st.info("ไม่มี Review History ให้ลบ")
+        else:
+            # ═══════════════════════════════════════════
+            # ส่วน 1: Soft Delete
+            # ═══════════════════════════════════════════
+            st.markdown("#### 🗑️ ลบรายการ Review")
+
+            # Filter by deliverable เพื่อหาง่าย
+            dl_filter_del = st.selectbox(
+                "กรองตาม Deliverable (optional)",
+                ["ทั้งหมด"] + sorted(rv_df["deliverable_id"].unique().tolist()),
+                key="rv_del_filter",
+            )
+
+            del_view = rv_df.copy()
+            if dl_filter_del != "ทั้งหมด":
+                del_view = del_view[del_view["deliverable_id"] == dl_filter_del]
+
+            del_view = del_view.sort_values("timestamp", ascending=False)
+
+            if del_view.empty:
+                st.info("ไม่พบรายการในกลุ่มนี้")
+            else:
+                del_id = st.selectbox(
+                    "เลือก Review ID ที่จะลบ",
+                    del_view["review_id"].astype(str).tolist(),
+                    format_func=lambda x: (
+                        f"{x} · "
+                        f"{del_view[del_view['review_id']==x]['deliverable_id'].iloc[0]} · "
+                        f"{del_view[del_view['review_id']==x]['version_no'].iloc[0]} · "
+                        f"{del_view[del_view['review_id']==x]['result'].iloc[0]}"
+                    ),
+                    key="rv_del_sel",
+                )
+                target = del_view[del_view["review_id"] == del_id].iloc[0]
+
+                # แสดงข้อมูลที่จะลบ
+                st.markdown(
+                    f"""
+                    <div style="background:#FFF8E1;border-left:4px solid #F57C00;
+                                padding:12px 16px;border-radius:8px;font-size:13px;
+                                margin:10px 0;">
+                        <b>จะลบ:</b> <code>{del_id}</code><br>
+                        <b>Deliverable:</b> {target['deliverable_id']}<br>
+                        <b>Version:</b> {target['version_no']} · 
+                        <b>ผล:</b> {target['result']} · 
+                        <b>Checklist:</b> {target['checklist_score']}/8<br>
+                        <b>ผู้ตรวจ:</b> {target.get('reviewer', '-')} · 
+                        <b>วันที่:</b> {_fmt_date(target.get('review_date'))}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                del_reason = st.text_input(
+                    "เหตุผลที่ลบ (บังคับ)",
+                    key="rv_del_reason",
+                    placeholder="เช่น บันทึกผิดพลาด / ซ้ำซ้อน / Test",
+                )
+
+                col_del, col_cancel = st.columns([1, 3])
+                with col_del:
+                    if st.button("🗑️ Soft Delete", type="primary",
+                                 use_container_width=True, key="rv_btn_soft_del"):
+                        if not del_reason.strip():
+                            st.error("⚠️ กรุณาระบุเหตุผล")
+                        else:
+                            try:
+                                rv_repo.soft_delete(
+                                    del_id, del_reason.strip(),
+                                    st.session_state.user,
+                                )
+                                st.success(f"✅ ซ่อน `{del_id}` สำเร็จ")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ {type(e).__name__}: {e}")
+
+            # ═══════════════════════════════════════════
+            # ส่วน 2: Restore
+            # ═══════════════════════════════════════════
+            st.markdown("---")
+            st.markdown("#### ↩️ คืนค่า (Restore)")
+
+            try:
+                from core.void_registry import read_voids
+                vd = read_voids()
+
+                # ★ filter เฉพาะ record_type = "deliverable_review"
+                vd_review = (
+                    vd[vd["record_type"] == "deliverable_review"]
+                    if not vd.empty else vd
+                )
+            except Exception as e:
+                st.error(f"❌ อ่าน void registry ไม่ได้: {e}")
+                vd_review = pd.DataFrame()
+
+            if vd_review.empty:
+                st.info("ไม่มีรายการที่ถูก Void")
+            else:
+                vd_review = vd_review.sort_values("voided_at", ascending=False)
+                restore_id = st.selectbox(
+                    "เลือก Review ID ที่จะคืน",
+                    vd_review["record_id"].astype(str).tolist(),
+                    key="rv_restore_sel",
+                )
+                restore_row = vd_review[vd_review["record_id"] == restore_id].iloc[0]
+
+                st.markdown(
+                    f"""
+                    <div style="background:#E3F2FD;border-left:4px solid #0B5ED7;
+                                padding:10px 14px;border-radius:8px;font-size:12.5px;
+                                margin:8px 0;">
+                        <b>เหตุผลที่ลบเดิม:</b> {restore_row.get('reason', '-')}<br>
+                        <b>ลบโดย:</b> {restore_row.get('voided_by', '-')} · 
+                        <b>เมื่อ:</b> {restore_row.get('voided_at', '-')}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                if st.button("↩️ คืนค่า", type="primary", key="rv_btn_restore"):
+                    try:
+                        if rv_repo.restore(restore_id, st.session_state.user):
+                            st.success(f"✅ คืนค่า `{restore_id}` สำเร็จ")
+                            st.rerun()
+                        else:
+                            st.error("❌ ไม่พบ record ที่จะคืนค่า")
+                    except Exception as e:
+                        st.error(f"❌ {type(e).__name__}: {e}")
+
+    # ============================================================
+    # TAB 5 — CSV
+    # ============================================================
+    with t5:
         st.markdown("### 📥 ข้อมูล CSV (อ่านเท่านั้น)")
         st.caption("ไฟล์จริง: `data/history/deliverable_review_history.csv`")
 
@@ -655,4 +784,5 @@ def render():
                 data=rv_df.to_csv(index=False).encode("utf-8-sig"),
                 file_name=f"deliverable_review_history_{today_str()}.csv",
                 mime="text/csv",
+                key="dl_review_csv",
             )
