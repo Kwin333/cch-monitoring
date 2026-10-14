@@ -1,10 +1,12 @@
 """
 repositories/base_repo.py — รองรับทั้ง CSV (local) และ PostgreSQL (production)
 
-★ v2:
+★ v3:
 - ใช้ _DeleteMixin ร่วมกันระหว่าง AppendOnlyRepo และ MasterRepo
 - รองรับ DB mode (Supabase PostgreSQL) ผ่าน core.db
 - CSV mode ทำงานเหมือนเดิม 100%
+- ⚠️ Fix: กรอง field ที่ไม่ตรง schema ออกก่อน save
+  (ป้องกัน error: column "_latest_progress" does not exist)
 """
 import os
 import csv
@@ -54,6 +56,38 @@ def _backup(path: Path) -> Path | None:
         return dest
     except Exception:
         return None
+
+
+# ═══════════════════════════════════════════════════════════
+# ★ HELPER: กรอง row ให้ตรง schema
+# ═══════════════════════════════════════════════════════════
+def _clean_row(row: dict, fields: list) -> dict:
+    """
+    ★ v3 — กรอง row ให้เหลือเฉพาะ field ที่อยู่ใน schema
+    ป้องกัน error: column "xxx" does not exist
+
+    - เก็บเฉพาะ key ที่อยู่ใน fields
+    - เติม field ที่ขาดด้วย "" (empty string)
+
+    Args:
+        row: dict ที่อาจมี extra keys (เช่น display columns)
+        fields: list ของ schema fields
+
+    Returns:
+        dict ที่มีเฉพาะ keys ใน fields
+    """
+    clean = {}
+    for f in fields:
+        v = row.get(f, "")
+        # แปลง NaN เป็น ""
+        try:
+            import pandas as pd
+            if pd.isna(v):
+                v = ""
+        except Exception:
+            pass
+        clean[f] = v
+    return clean
 
 
 # ═══════════════════════════════════════════════════════════
@@ -358,13 +392,17 @@ class AppendOnlyRepo(_DeleteMixin):
         return None
 
     def append(self, row: dict):
-        """Append row — รองรับทั้ง CSV และ DB"""
-        assert set(row.keys()) <= set(self.fields), \
-            f"unknown fields: {set(row.keys()) - set(self.fields)}"
+        """
+        Append row — รองรับทั้ง CSV และ DB
+
+        ★ v3: กรอง field ที่ไม่ตรง schema ออกก่อน save
+        """
+        # ⚠️ กรอง field ที่ไม่ตรง schema
+        clean_row = _clean_row(row, self.fields)
 
         if _USE_DB:
             from core.db import append_row
-            append_row(self.table_name, row)
+            append_row(self.table_name, clean_row)
         else:
             _backup(self.path)
             exists = self.path.exists()
@@ -372,7 +410,7 @@ class AppendOnlyRepo(_DeleteMixin):
                 w = csv.DictWriter(f, fieldnames=self.fields)
                 if not exists:
                     w.writeheader()
-                w.writerow(row)
+                w.writerow(clean_row)
 
     def read(self, include_voided: bool = False):
         """อ่านข้อมูล — รองรับทั้ง CSV และ DB"""
@@ -451,16 +489,24 @@ class MasterRepo(_DeleteMixin):
         return df
 
     def upsert(self, row: dict, key: str):
-        """Upsert — รองรับทั้ง CSV และ DB"""
+        """
+        Upsert — รองรับทั้ง CSV และ DB
+
+        ★ v3: กรอง field ที่ไม่ตรง schema ออกก่อน save
+        (fix bug: column "_latest_progress" does not exist)
+        """
+        # ⚠️ กรอง field ที่ไม่ตรง schema ออก
+        clean_row = _clean_row(row, self.fields)
+
         if _USE_DB:
             from core.db import upsert_row
-            upsert_row(self.table_name, row, key)
+            upsert_row(self.table_name, clean_row, key)
         else:
             import pandas as pd
             df = self.read(include_voided=True)
             if not df.empty:
-                df = df[df[key].astype(str) != str(row[key])]
-            new = pd.DataFrame([row], columns=self.fields)
+                df = df[df[key].astype(str) != str(clean_row[key])]
+            new = pd.DataFrame([clean_row], columns=self.fields)
             df = pd.concat([df, new], ignore_index=True)
             _backup(self.path)
             df.to_csv(self.path, index=False, encoding="utf-8-sig")

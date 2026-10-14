@@ -1,6 +1,8 @@
 """Deliverable Master — จัดการรายการส่งมอบตาม TOR
 
-★ v2 — แก้ไข:
+★ v3 — แก้ไข:
+- 🔧 Fix: ป้องกัน `_latest_progress` (display column) ถูก save ลง DB
+  → ลบ display column ก่อน upsert ทุกครั้ง
 - เพิ่ม Weight Audit Panel ที่ตรวจสอบผลรวม weight = 100.00%
 - เพิ่ม Warning + คำแนะนำเมื่อ weight ไม่ครบ 100%
 - เพิ่ม Breakdown ต่อ Milestone แบบ visual + progress bar
@@ -34,6 +36,9 @@ COMPLIANCE_STATUSES = [
 # เป้าหมายของผลรวม weight (ใช้ตรวจสอบ)
 TARGET_WEIGHT_TOTAL = 100.0
 WEIGHT_TOLERANCE = 0.01  # ยอมรับส่วนต่าง ±0.01%
+
+# Display columns ที่ห้าม save ลง DB
+DISPLAY_COLS = ["_latest_progress"]
 
 
 # ============================================================
@@ -129,6 +134,19 @@ def _tile(label, value, sub, color):
         <div style="font-size:11px;color:{color};">{sub}</div>
     </div>
     """
+
+
+def _strip_display_cols(row: dict) -> dict:
+    """
+    ★ v3 — ลบ display columns ก่อน save
+    ป้องกัน error: column "_latest_progress" does not exist
+    """
+    if not isinstance(row, dict):
+        return row
+    clean = dict(row)
+    for col in DISPLAY_COLS:
+        clean.pop(col, None)
+    return clean
 
 
 def _get_weight_summary(df: pd.DataFrame) -> dict:
@@ -398,7 +416,7 @@ def render():
         if not df.empty else 0
     )
 
-    # Progress + Status
+    # ★ Progress + Status — เพิ่ม display column (จะถูกลบก่อน save)
     if not df.empty:
         df["_latest_progress"] = df["deliverable_id"].apply(
             lambda x: _latest_actual(x, prog_df)
@@ -565,7 +583,7 @@ def render():
 
             # --- Detailed table (toggle) ---
             with st.expander("📋 ดูตารางแบบละเอียด"):
-                table = view.drop(columns=["_latest_progress"], errors="ignore").copy()
+                table = view.drop(columns=DISPLAY_COLS, errors="ignore").copy()
                 st.dataframe(table, use_container_width=True, hide_index=True)
 
     # ============================================================
@@ -667,12 +685,15 @@ def render():
                     if did.strip() in df["deliverable_id"].astype(str).values:
                         raise ValidationError(f"⚠️ รหัส `{did}` มีอยู่แล้ว — กรุณาใช้รหัสอื่น")
 
-                    repo.upsert(row, key="deliverable_id")
+                    # ★ v3: ลบ display cols ก่อน save (defense in depth)
+                    row_clean = _strip_display_cols(row)
+
+                    repo.upsert(row_clean, key="deliverable_id")
                     append_audit(
                         st.session_state.user, "CREATE", "DELIVERABLE",
-                        row["deliverable_id"],
+                        row_clean["deliverable_id"],
                         old_value="",
-                        new_value=str(row)[:500],
+                        new_value=str(row_clean)[:500],
                         reason="เพิ่ม Deliverable ใหม่",
                     )
                     st.success(f"✅ เพิ่ม `{did}` สำเร็จ")
@@ -698,6 +719,7 @@ def render():
                     ),
                     key="dl_edit_sel",
                 )
+                # ★ v3: เลือกแถวโดยตรง (จะ strip display col ตอน save)
                 r = df[df["deliverable_id"] == dl_sel].iloc[0]
 
                 # --- Reference info ---
@@ -791,7 +813,8 @@ def render():
 
                 if save_edit:
                     try:
-                        new_r = r.to_dict()
+                        # ★ v3: strip display cols ก่อนสร้าง dict
+                        new_r = _strip_display_cols(r.to_dict())
                         new_r.update({
                             "milestone_id": msid,
                             "tor_clause": clause,
@@ -811,7 +834,11 @@ def render():
                         })
                         _validate_dl(new_r)
 
-                        old_r = r.to_dict()
+                        # ★ v3: strip อีกครั้ง (defense in depth)
+                        new_r = _strip_display_cols(new_r)
+
+                        old_r = _strip_display_cols(r.to_dict())
+
                         repo.upsert(new_r, key="deliverable_id")
                         append_audit(
                             st.session_state.user, "UPDATE", "DELIVERABLE",
@@ -885,31 +912,33 @@ def render():
         st.markdown("### 📥 ข้อมูล CSV (อ่านเท่านั้น)")
         st.caption("ข้อมูลจริงอยู่ในไฟล์ `data/master/deliverable_master.csv`")
 
+        # ★ v3: strip display cols ก่อนแสดง
+        df_clean = df.drop(columns=DISPLAY_COLS, errors="ignore").copy()
+
         st.dataframe(
-            df.drop(columns=["_latest_progress"], errors="ignore"),
+            df_clean,
             use_container_width=True,
             hide_index=True,
         )
 
         st.download_button(
             "⬇️ ดาวน์โหลด deliverable_master.csv",
-            data=df.drop(columns=["_latest_progress"], errors="ignore")
-                   .to_csv(index=False).encode("utf-8-sig"),
+            data=df_clean.to_csv(index=False).encode("utf-8-sig"),
             file_name=f"deliverable_master_{today_str()}.csv",
             mime="text/csv",
             key="dl_download_csv",
         )
 
         # ═══════════════════════════════════════════════════════════
-        # ★ WEIGHT AUDIT (ฟังก์ชันใหม่)
+        # ★ WEIGHT AUDIT
         # ═══════════════════════════════════════════════════════════
-        if not df.empty:
-            _render_weight_audit(df.drop(columns=["_latest_progress"], errors="ignore"))
+        if not df_clean.empty:
+            _render_weight_audit(df_clean)
 
-        # ---- สรุปแบบเดิม (เก็บไว้เป็น secondary view) ----
-        if not df.empty:
+        # ---- สรุปแบบเดิม (secondary view) ----
+        if not df_clean.empty:
             with st.expander("📊 สรุปแบบย่อ (Weight by Milestone)", expanded=False):
-                wsum = df.groupby("milestone_id")["weight"].sum().reset_index()
+                wsum = df_clean.groupby("milestone_id")["weight"].sum().reset_index()
                 wsum.columns = ["Milestone", "Weight รวม (%)"]
                 wsum["Weight รวม (%)"] = wsum["Weight รวม (%)"].apply(
                     lambda x: f"{float(x):.2f}%"
