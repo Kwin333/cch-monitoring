@@ -180,29 +180,6 @@ def render():
                     st.rerun()
 
         # ═══════════════════════════════════════════════════════════
-        # DEMO CREDENTIALS
-        # ═══════════════════════════════════════════════════════════
-        with st.expander("🔑 บัญชีเริ่มต้น (demo)", expanded=False):
-            st.caption(
-                "⚠️ รหัสผ่านเริ่มต้น — ควรเปลี่ยนทันทีในระบบจริง "
-                "(เมนู 🔧 Settings → User Management)"
-            )
-            st.markdown("| Username | Password | Role |")
-            st.markdown("|----------|----------|------|")
-            for u, p in DEFAULT_PASSWORDS.items():
-                role_map = {
-                    "admin": "admin",
-                    "monitoring01": "monitoring",
-                    "reviewer01": "reviewer",
-                    "committee01": "committee",
-                    "supervisor01": "supervisor",
-                    "viewer": "readonly",
-                }
-                st.markdown(f"| `{u}` | `{p}` | `{role_map.get(u, '-')}` |")
-
-        st.markdown("---")
-
-        # ═══════════════════════════════════════════════════════════
         # FOOTER
         # ═══════════════════════════════════════════════════════════
         st.markdown(
