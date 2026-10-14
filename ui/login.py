@@ -1,5 +1,8 @@
-"""Login Page — หน้าเข้าสู่ระบบ"""
+"""Login Page — หน้าเข้าสู่ระบบ (พร้อม Logo EXAT)"""
+import base64
+from pathlib import Path
 import streamlit as st
+
 from core.auth import (
     authenticate, login_session, ensure_users_file,
     DEFAULT_PASSWORDS,
@@ -7,6 +10,32 @@ from core.auth import (
 from core.audit import append_audit
 
 
+# ═══════════════════════════════════════════════════════════
+# ★ LOGO HELPER
+# ═══════════════════════════════════════════════════════════
+def _get_logo_base64() -> str:
+    """อ่านไฟล์ Logo เป็น base64 string สำหรับฝังใน HTML"""
+    # ลองหาหลาย ๆ path เพื่อรองรับทั้ง local และ Streamlit Cloud
+    possible_paths = [
+        Path(__file__).parent.parent / "assets" / "exat_logo.png",
+        Path(__file__).parent / "assets" / "exat_logo.png",
+        Path("assets") / "exat_logo.png",
+    ]
+
+    for logo_path in possible_paths:
+        if logo_path.exists():
+            try:
+                with open(logo_path, "rb") as f:
+                    return base64.b64encode(f.read()).decode()
+            except Exception:
+                continue
+
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════
+# MAIN RENDER
+# ═══════════════════════════════════════════════════════════
 def render():
     # ตรวจสอบ users.json
     ensure_users_file()
@@ -17,24 +46,66 @@ def render():
         <style>
             [data-testid="stSidebar"] { display: none; }
             [data-testid="collapsedControl"] { display: none; }
+
+            /* ซ่อน decoration bar */
+            div[data-testid="stDecoration"] { display: none !important; }
+
+            /* ปรับ header ให้โปร่งใส */
+            header[data-testid="stHeader"] {
+                background: transparent !important;
+            }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+    # โหลด Logo
+    logo_b64 = _get_logo_base64()
+
     # Center layout
     _, center, _ = st.columns([1, 2, 1])
 
     with center:
+        # ═══════════════════════════════════════════════════════════
+        # ★ LOGO + TITLE
+        # ═══════════════════════════════════════════════════════════
+        if logo_b64:
+            # แสดง Logo
+            st.markdown(
+                f"""
+                <div style="text-align:center;padding:20px 0 10px 0;">
+                    <img src="data:image/png;base64,{logo_b64}"
+                         style="width:180px;height:auto;
+                                filter:drop-shadow(0 4px 12px rgba(0,51,102,0.12));"
+                         alt="EXAT Logo">
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            # Fallback ถ้าไม่พบ Logo
+            st.markdown(
+                """
+                <div style="text-align:center;padding:30px 0 10px 0;">
+                    <div style="font-size:56px;line-height:1;">🎯</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # Title
         st.markdown(
             """
-            <div style="text-align:center;padding:30px 0 20px 0;">
-                <div style="font-size:56px;line-height:1;">🎯</div>
-                <div style="font-size:26px;font-weight:800;color:#003366;margin-top:8px;">
+            <div style="text-align:center;padding:4px 0 20px 0;">
+                <div style="font-size:26px;font-weight:800;color:#003366;
+                            line-height:1.2;">
                     CCH Consultant Monitoring
                 </div>
-                <div style="font-size:13px;color:#666;margin-top:4px;">
-                    โครงการจ้างที่ปรึกษากำกับดูแล CCH · การทางพิเศษแห่งประเทศไทย
+                <div style="font-size:13px;color:#666;margin-top:6px;">
+                    โครงการจ้างที่ปรึกษากำกับดูแลระบบชำระดุลส่วนกลาง (CCH)
+                </div>
+                <div style="font-size:13px;color:#666;margin-top:2px;">
+                    การทางพิเศษแห่งประเทศไทย (กทพ.)
                 </div>
             </div>
             """,
@@ -43,6 +114,9 @@ def render():
 
         st.markdown("---")
 
+        # ═══════════════════════════════════════════════════════════
+        # LOGIN FORM
+        # ═══════════════════════════════════════════════════════════
         with st.form("login_form", clear_on_submit=False):
             st.markdown("### 🔐 เข้าสู่ระบบ")
 
@@ -99,5 +173,48 @@ def render():
                         )
                     except Exception:
                         pass
-                    st.success(f"✅ ยินดีต้อนรับ **{user.get('full_name', user.get('username'))}**")
+                    st.success(
+                        f"✅ ยินดีต้อนรับ "
+                        f"**{user.get('full_name', user.get('username'))}**"
+                    )
                     st.rerun()
+
+        # ═══════════════════════════════════════════════════════════
+        # DEMO CREDENTIALS
+        # ═══════════════════════════════════════════════════════════
+        with st.expander("🔑 บัญชีเริ่มต้น (demo)", expanded=False):
+            st.caption(
+                "⚠️ รหัสผ่านเริ่มต้น — ควรเปลี่ยนทันทีในระบบจริง "
+                "(เมนู 🔧 Settings → User Management)"
+            )
+            st.markdown("| Username | Password | Role |")
+            st.markdown("|----------|----------|------|")
+            for u, p in DEFAULT_PASSWORDS.items():
+                role_map = {
+                    "admin": "admin",
+                    "monitoring01": "monitoring",
+                    "reviewer01": "reviewer",
+                    "committee01": "committee",
+                    "supervisor01": "supervisor",
+                    "viewer": "readonly",
+                }
+                st.markdown(f"| `{u}` | `{p}` | `{role_map.get(u, '-')}` |")
+
+        st.markdown("---")
+
+        # ═══════════════════════════════════════════════════════════
+        # FOOTER
+        # ═══════════════════════════════════════════════════════════
+        st.markdown(
+            """
+            <div style="text-align:center;padding:10px 0 20px 0;
+                        font-size:11.5px;color:#999;line-height:1.7;">
+                💡 หากลืมรหัสผ่าน กรุณาติดต่อผู้ดูแลระบบ (admin)<br>
+                © 2026 การทางพิเศษแห่งประเทศไทย<br>
+                <span style="font-size:11px;color:#bbb;">
+                    Evidence-based Monitoring · v1.0
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
