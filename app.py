@@ -7,6 +7,12 @@ Main Entry Point:
 - View-only mode banner สำหรับหน้าที่อ่านได้อย่างเดียว
 - Audit logging (login / logout / navigation)
 
+★ v3 — แก้ไข:
+- 🕒 ใช้ Bangkok timezone (now_str) แทน datetime.now() (UTC)
+- 🕒 Session elapsed คำนวณด้วย Bangkok time
+- 🕒 Footer แสดงเวลาไทย
+- 🕒 Sidebar footer © year ใช้ Bangkok year
+
 ★ v2: เพิ่ม Logo EXAT ใน Sidebar + Footer
 """
 import streamlit as st
@@ -15,11 +21,34 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import importlib
 import traceback
+
+# ★ v3: Bangkok timezone helpers
+import pytz
+from core.time_util import now_str, today_str, BKK
+
 from core.permissions import (
     can_view, can_edit, can_delete, can_approve,
     get_accessible_pages, get_landing_page,
     get_role_badge, get_role_description,
 )
+
+
+# ============================================================
+# ★ v3: TIME HELPERS (Bangkok)
+# ============================================================
+def _now_bkk() -> datetime:
+    """คืน datetime ปัจจุบันใน Bangkok timezone (naive)"""
+    return datetime.now(BKK).replace(tzinfo=None)
+
+
+def _now_bkk_str() -> str:
+    """คืน string เวลาไทย format DD/MM/YYYY HH:MM:SS"""
+    return _now_bkk().strftime("%d/%m/%Y %H:%M:%S")
+
+
+def _year_bkk() -> int:
+    """คืนปี (ค.ศ.) ใน Bangkok timezone"""
+    return _now_bkk().year
 
 
 # ============================================================
@@ -81,15 +110,12 @@ st.markdown(
         /* ═══════════════════════════════════════════════════
            Page layout — ให้ header ไม่ถูกตัด
            ═══════════════════════════════════════════════════ */
-
-        /* Main content area */
         .block-container {
             padding-top: 3.5rem !important;
             padding-bottom: 2rem !important;
             max-width: 100% !important;
         }
 
-        /* หัวข้อ h1 — ไม่ให้ถูกตัด */
         .block-container h1 {
             padding-top: 0 !important;
             margin-top: 0 !important;
@@ -97,18 +123,15 @@ st.markdown(
             overflow: visible !important;
         }
 
-        /* Streamlit top header */
         header[data-testid="stHeader"] {
             background: transparent !important;
             height: 3rem !important;
         }
 
-        /* Toolbar (hamburger) */
         div[data-testid="stToolbar"] {
             top: 0.5rem !important;
         }
 
-        /* ซ่อน decoration bar */
         div[data-testid="stDecoration"] {
             display: none !important;
         }
@@ -313,19 +336,36 @@ st.sidebar.markdown(
 
 
 # ============================================================
-# SIDEBAR — Session Info
+# ★ v3: SIDEBAR — Session Info (Bangkok time)
 # ============================================================
 login_time_str = st.session_state.get("login_time", "")
 if login_time_str:
     try:
         login_dt = datetime.fromisoformat(login_time_str)
-        elapsed = datetime.now() - login_dt
+
+        # ★ v3: ใช้ Bangkok time
+        now_bkk = _now_bkk()
+
+        # จัดการกรณี login_dt มี tzinfo หรือไม่มี
+        if login_dt.tzinfo is not None:
+            # ถ้ามี tzinfo → แปลงเป็น Bangkok แล้วตัด tzinfo
+            login_dt_bkk = login_dt.astimezone(BKK).replace(tzinfo=None)
+        else:
+            # ถ้าไม่มี tzinfo → สมมติว่าเป็น Bangkok time แล้ว
+            login_dt_bkk = login_dt
+
+        elapsed = now_bkk - login_dt_bkk
         mins = int(elapsed.total_seconds() // 60)
-        if mins < 60:
+
+        if mins < 0:
+            # กรณี login_time เป็น UTC → elapsed จะติดลบ → fallback
+            st.sidebar.caption("🕒 เข้าใช้ระบบ: เมื่อสักครู่")
+        elif mins < 60:
             elapsed_txt = f"{mins} นาที"
+            st.sidebar.caption(f"🕒 เข้าใช้ระบบ: {elapsed_txt}")
         else:
             elapsed_txt = f"{mins // 60} ชม. {mins % 60} นาที"
-        st.sidebar.caption(f"🕒 เข้าใช้ระบบ: {elapsed_txt}")
+            st.sidebar.caption(f"🕒 เข้าใช้ระบบ: {elapsed_txt}")
     except Exception:
         pass
 
@@ -441,7 +481,7 @@ if st.sidebar.button(
 
 
 # ============================================================
-# ★ SIDEBAR — Footer (with Logo)
+# ★ SIDEBAR — Footer (with Logo) — Bangkok year
 # ============================================================
 st.sidebar.markdown("---")
 
@@ -458,7 +498,7 @@ if logo_b64:
     )
 
 st.sidebar.caption("v1.0 · Evidence-based Monitoring")
-st.sidebar.caption(f"© 2026 กทพ. · {datetime.now().strftime('%Y')}")
+st.sidebar.caption(f"© 2026 กทพ. · {_year_bkk()}")   # ★ v3: Bangkok year
 
 
 # ============================================================
@@ -513,15 +553,17 @@ except Exception as e:
 
 
 # ============================================================
-# ★ FOOTER (with Logo)
+# ★ v3: FOOTER (with Logo) — Bangkok time
 # ============================================================
+_bkk_time_str = _now_bkk_str()   # ★ v3: DD/MM/YYYY HH:MM:SS (Bangkok)
+
 if logo_b64:
     st.markdown(
         f"""
         <div class="exat-logo-footer">
             <img src="data:image/png;base64,{logo_b64}" alt="EXAT">
             <div style="font-size:11.5px;color:#888;">
-                🕒 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} · 
+                🕒 {_bkk_time_str} · 
                 👤 {full_name} ({role_badge}) · 
                 📄 {choice}
             </div>
@@ -532,7 +574,7 @@ if logo_b64:
 else:
     st.markdown("---")
     st.caption(
-        f"🕒 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} · "
+        f"🕒 {_bkk_time_str} · "
         f"👤 {full_name} ({role_badge}) · "
         f"📄 {choice}"
     )
