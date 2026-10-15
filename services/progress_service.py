@@ -1,9 +1,14 @@
 """คำนวณ Overall Progress + Warning + Payment Amounts
 
-★ v3 — แก้ไข:
+★ v4 — แก้ไข:
+- 🔧 Fix: `check_milestone_warning()` คืน GREEN ถ้า milestone status
+  = Accepted / Payment Processing / Paid / Closed (ปิดงานแล้วไม่ต้องเตือน)
+- 🔧 Fix: `_effective_actual()` ใช้ FINAL_STATUSES tuple กลาง
+  รองรับ status เพิ่มเติม (Submitted, Under Review) ในอนาคต
+
+★ v3:
 - `compute_overall_progress()`: ถ้า deliverable status = "Accepted"
-  → ใช้ actual = 100% เสมอ (ไม่ต้องพึ่ง progress_history)
-  เพื่อให้สอดคล้องกับ Dashboard ที่แสดง "🟢 ตรวจรับแล้ว"
+  → ใช้ actual = 100% เสมอ
 - เพิ่ม helper `_effective_actual()` ใช้ร่วมกัน
 - เพิ่ม helper `compute_milestone_progress()` สำหรับ reuse
 """
@@ -14,12 +19,27 @@ from repositories.deliverable_repo import DeliverableRepo
 
 
 # ============================================================
+# ★ v4: Constants
+# ============================================================
+# Deliverable final statuses → นับเป็น 100%
+DELIVERABLE_FINAL_STATUSES = ("Accepted", "Closed")
+
+# Milestone final statuses → ไม่ต้องเตือน (GREEN เสมอ)
+MILESTONE_FINAL_STATUSES = (
+    "Accepted",
+    "Payment Processing",
+    "Paid",
+    "Closed",
+)
+
+
+# ============================================================
 # ★ v3: Helper — Effective Actual
 # ============================================================
 def _effective_actual(deliverable_row, prog_df) -> float:
     """
     คำนวณ actual % ที่แท้จริงของ deliverable
-    ★ v3: ถ้า status = "Accepted" → 100% ทันที
+    ★ v3: ถ้า status = "Accepted" หรือ "Closed" → 100% ทันที
 
     Args:
         deliverable_row: row จาก deliverable_master (มี deliverable_id + status)
@@ -28,20 +48,16 @@ def _effective_actual(deliverable_row, prog_df) -> float:
     Returns:
         actual % (0.0 - 100.0)
     """
-    # ── 1. ถ้า Accepted → 100% ──
+    # ── 1. ตรวจสอบ status ──
     try:
         status = str(deliverable_row.get("status", "") or "")
     except Exception:
         status = ""
 
-    if status == "Accepted":
+    if status in DELIVERABLE_FINAL_STATUSES:
         return 100.0
 
-    # ── 2. ถ้า Closed → 100% ──
-    if status == "Closed":
-        return 100.0
-
-    # ── 3. หา latest progress จาก history ──
+    # ── 2. หา latest progress จาก history ──
     if prog_df is None or prog_df.empty:
         return 0.0
 
@@ -78,7 +94,7 @@ def compute_overall_progress(project_id: str) -> dict:
     Overall = Σ(weight × effective_actual)
 
     ★ v3: ใช้ _effective_actual() ที่คำนึงถึง status
-    - status = "Accepted" → actual = 100%
+    - status = "Accepted" / "Closed" → actual = 100%
     - status อื่น → อ่านจาก progress_history
 
     Returns:
@@ -89,7 +105,7 @@ def compute_overall_progress(project_id: str) -> dict:
                 "status", "contribution"
             }, ...],
             "total_weight": float,
-            "has_accepted_override": bool  # ★ ใหม่: บอกว่ามี override ไหม
+            "has_accepted_override": bool
         }
     """
     deliv = DeliverableRepo().read()
@@ -121,7 +137,7 @@ def compute_overall_progress(project_id: str) -> dict:
         # ★ v3: ใช้ effective actual
         latest = _effective_actual(d, prog)
 
-        if status in ("Accepted", "Closed") and latest == 100.0:
+        if status in DELIVERABLE_FINAL_STATUSES and latest == 100.0:
             has_override = True
 
         total_weight += w
@@ -132,7 +148,7 @@ def compute_overall_progress(project_id: str) -> dict:
             "weight": w,
             "latest_actual": latest,
             "status": status,
-            "contribution": round(w * latest / 100.0, 4),  # ★ ใหม่: contribution
+            "contribution": round(w * latest / 100.0, 4),
         })
 
     overall = (weighted / total_weight) if total_weight else 0.0
@@ -199,7 +215,7 @@ def compute_milestone_progress(milestone_id: str) -> dict:
         weighted += w * latest
 
         status = str(d.get("status", "") or "")
-        if status in ("Accepted", "Closed"):
+        if status in DELIVERABLE_FINAL_STATUSES:
             n_accepted += 1
         elif status == "In Progress":
             n_in_progress += 1
@@ -217,7 +233,7 @@ def compute_milestone_progress(milestone_id: str) -> dict:
 
 
 # ============================================================
-# WARNING HELPERS (ไม่แก้)
+# WARNING HELPERS
 # ============================================================
 def warning_level(variance: float, cfg: dict = None) -> str:
     """variance = actual − planned"""
@@ -232,18 +248,45 @@ def warning_level(variance: float, cfg: dict = None) -> str:
 
 
 def check_milestone_warning(m: dict) -> str:
-    """เช็ค Milestone เทียบ Due Date"""
+    """
+    เช็ค Milestone เทียบ Due Date
+
+    ★ v4: ตรวจสอบ status ก่อน — ถ้า milestone เสร็จแล้ว → GREEN เสมอ
+        (ปิดงานแล้ว ไม่ควรขึ้น RED แม้เลย Due Date)
+
+    ลำดับการเช็ค:
+    1. status ∈ (Accepted, Payment Processing, Paid, Closed)
+       → GREEN (ปิดงานแล้ว)
+    2. ไม่มี due_date → GREEN
+    3. due_date ผ่านมาแล้ว (days_left < 0) → RED
+    4. days_left ≤ due_soon_days → YELLOW
+    5. อื่นๆ → GREEN
+    """
     cfg = load_settings()
     today = date.today()
+
+    # ══════════════════════════════════════════════════════
+    # ★ v4: ถ้า milestone เสร็จสิ้นแล้ว → GREEN ทันที
+    # ══════════════════════════════════════════════════════
+    status = str(m.get("status", "") or "")
+    if status in MILESTONE_FINAL_STATUSES:
+        return "GREEN"
+
+    # ══════════════════════════════════════════════════════
+    # เช็ค Due Date ตามปกติ
+    # ══════════════════════════════════════════════════════
     due = m.get("due_date")
     if not due:
         return "GREEN"
+
     if isinstance(due, str):
         try:
             due = date.fromisoformat(due)
         except Exception:
             return "GREEN"
+
     days_left = (due - today).days
+
     if days_left < 0:
         return "RED"
     if days_left <= cfg["warning_thresholds"]["due_soon_days"]:
