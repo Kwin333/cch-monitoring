@@ -1,18 +1,23 @@
 """Deliverable Master — จัดการรายการส่งมอบตาม TOR
 
+★ v6 — แก้ไข:
+- 🔧 Fix: `_next_dl_id()` สร้าง ID ตาม pattern DLV-M{no}-{NN} (ตรงกับ bootstrap)
+- 🔧 Fix: Sequence auto-calc เป็น "per-milestone" (reset ทุก milestone)
+- 🔧 Fix: เมื่อเปลี่ยน Milestone ใน edit mode → เตือน sequence อาจต้องปรับ
+- ✨ เพิ่ม helper `_next_sequence_for_ms()` + `_next_id_for_ms()`
+- ✨ เพิ่ม Sequence Viewer แสดงค่าที่ควรเป็น (auto-calc จาก ID)
+
 ★ v5 — แก้ไข:
-- 🔧 Fix: เรียงลำดับตาม `sequence` field (ตรงกับ Excel Timeline)
+- เรียงลำดับตาม `sequence` field (ตรงกับ Excel Timeline)
 - เพิ่ม helper `_get_sequence()` + `_sort_by_sequence()`
-- แก้ Sort option "Milestone + ID" → ใช้ sequence แทน deliverable_id
-- เพิ่มคอลัมน์ "#" (ลำดับที่) แสดงในตาราง + Card list
+- แก้ Sort option → ใช้ sequence แทน deliverable_id
+- เพิ่มคอลัมน์ "#" แสดงในตาราง + Card list
 - รองรับ fallback ถ้า DB ยังไม่มี column `sequence`
 
 ★ v4 — แก้ไข:
-- 🔧 Fix: Status = "Accepted" / "Closed" → Actual = 100% (override progress_history)
-- เพิ่ม helper `_effective_progress()` ที่คำนึงถึง status
-- แก้ `_latest_actual()` ให้รับ status param
-- แก้ callers ทั้ง 3 จุด (KPI tiles, edit mode, card list)
-- เพิ่ม Column "Progress Source" ในตาราง (badge ว่ามาจาก status หรือ history)
+- Status = "Accepted" / "Closed" → Actual = 100%
+- เพิ่ม helper `_latest_actual()` รับ status param
+- เพิ่ม Column "Progress Source"
 
 ★ v3 — แก้ไข:
 - ป้องกัน `_latest_progress` (display column) ถูก save ลง DB
@@ -20,6 +25,7 @@
 """
 import streamlit as st
 import pandas as pd
+import re
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -43,15 +49,16 @@ COMPLIANCE_STATUSES = [
     "Non-Compliant", "Not Applicable",
 ]
 
-# เป้าหมายของผลรวม weight (ใช้ตรวจสอบ)
 TARGET_WEIGHT_TOTAL = 100.0
-WEIGHT_TOLERANCE = 0.01  # ยอมรับส่วนต่าง ±0.01%
+WEIGHT_TOLERANCE = 0.01
 
-# Display columns ที่ห้าม save ลง DB
-DISPLAY_COLS = ["_latest_progress", "_progress_source", "_sequence", "_seq"]
+DISPLAY_COLS = ["_latest_progress", "_progress_source", "_sequence", "_seq",
+                "_auto_seq", "_is_orphan"]
 
-# Status ที่นับเป็น "เสร็จสิ้น" → actual = 100%
 FINAL_STATUSES = ("Accepted", "Closed")
+
+# Pattern สำหรับ DLV-M{n}-{NN}
+_ID_PATTERN = re.compile(r"^DLV-M(\d+)-(\d+)$")
 
 
 # ============================================================
@@ -116,28 +123,90 @@ def _validate_dl(d: dict):
 
 
 # ============================================================
+# ★ v6: ID GENERATOR (ตาม pattern DLV-M{n}-{NN})
+# ============================================================
+def _parse_id(did: str) -> tuple:
+    """
+    Parse DLV-M1-05 → (1, 5) · DLV-M12-03 → (12, 3)
+    Return (None, None) ถ้าไม่ match
+    """
+    m = _ID_PATTERN.match(str(did).strip())
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None, None
+
+
+def _next_id_for_ms(df: pd.DataFrame, milestone_id: str) -> str:
+    """
+    สร้าง ID ถัดไปสำหรับ milestone เช่น MLS-01 → DLV-M1-15
+    """
+    # milestone_id: "MLS-01" → 1
+    ms_no = None
+    try:
+        ms_no = int(str(milestone_id).replace("MLS-", ""))
+    except Exception:
+        ms_no = 1
+
+    if df.empty:
+        return f"DLV-M{ms_no}-01"
+
+    max_num = 0
+    for did in df["deliverable_id"].astype(str):
+        m_no, num = _parse_id(did)
+        if m_no == ms_no and num is not None:
+            max_num = max(max_num, num)
+
+    return f"DLV-M{ms_no}-{max_num + 1:02d}"
+
+
+def _next_sequence_for_ms(df: pd.DataFrame, milestone_id: str) -> int:
+    """
+    ★ v6: คำนวณ sequence ถัดไปภายใน milestone เดียว
+    """
+    if df.empty:
+        return 1
+
+    m_dl = df[df["milestone_id"] == milestone_id]
+    if m_dl.empty:
+        return 1
+
+    if "sequence" in m_dl.columns:
+        seq_vals = pd.to_numeric(m_dl["sequence"], errors="coerce").fillna(0)
+        return int(seq_vals.max()) + 1
+
+    # fallback: parse จาก ID
+    max_seq = 0
+    for did in m_dl["deliverable_id"].astype(str):
+        _, num = _parse_id(did)
+        if num is not None:
+            max_seq = max(max_seq, num)
+    return max_seq + 1
+
+
+# ============================================================
 # ★ v5: SEQUENCE HELPERS
 # ============================================================
 def _get_sequence(row_or_dict) -> int:
     """
-    ดึงค่า sequence จาก row (รองรับทั้ง DataFrame row และ dict)
-    ถ้าไม่มี → คืน 9999 (จัดท้าย)
+    ดึงค่า sequence จาก row
+    ถ้าไม่มี → parse จาก deliverable_id (DLV-M1-05 → 5)
     """
     try:
         val = row_or_dict.get("sequence", None)
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            # Fallback: parse จาก deliverable_id
-            did = str(row_or_dict.get("deliverable_id", ""))
-            # DLV-M1-19 → 19
-            if did.startswith("DLV-") and "-" in did[4:]:
-                try:
-                    return int(did.rsplit("-", 1)[-1])
-                except ValueError:
-                    return 9999
-            return 9999
-        return int(float(val))
+        if val is not None and not (isinstance(val, float) and pd.isna(val)):
+            return int(float(val))
     except Exception:
-        return 9999
+        pass
+
+    try:
+        did = str(row_or_dict.get("deliverable_id", ""))
+        _, num = _parse_id(did)
+        if num is not None:
+            return num
+    except Exception:
+        pass
+
+    return 9999
 
 
 def _sort_by_sequence(df: pd.DataFrame, sequence_col: str = "_sequence") -> pd.DataFrame:
@@ -149,7 +218,6 @@ def _sort_by_sequence(df: pd.DataFrame, sequence_col: str = "_sequence") -> pd.D
 
     work = df.copy()
 
-    # สร้าง _sequence ถ้ายังไม่มี
     if sequence_col not in work.columns:
         if "sequence" in work.columns:
             work[sequence_col] = pd.to_numeric(
@@ -174,22 +242,14 @@ def _latest_actual(
     status: str = None,
 ) -> tuple:
     """
-    ★ v4: คำนวณ actual % ที่แท้จริง + source
-
     Priority:
     1. status = "Accepted" / "Closed" → (100.0, "status")
     2. progress_history มีข้อมูล → (latest_actual, "history")
     3. ไม่มี → (0.0, "none")
-
-    Returns:
-        (actual_pct: float, source: str)
-        source: "status" | "history" | "none"
     """
-    # ── Priority 1: Status final → 100% ──
     if status and str(status) in FINAL_STATUSES:
         return 100.0, "status"
 
-    # ── Priority 2: progress_history ──
     if prog_df is None or prog_df.empty:
         return 0.0, "none"
 
@@ -208,13 +268,11 @@ def _latest_actual(
 
 
 def _latest_actual_value(deliverable_id: str, prog_df, status: str = None) -> float:
-    """Wrapper — คืนค่า float เท่านั้น (backward compatible)"""
     val, _ = _latest_actual(deliverable_id, prog_df, status=status)
     return val
 
 
 def _progress_source_badge(source: str) -> str:
-    """Badge แสดงที่มาของ progress"""
     m = {
         "status": "🟢 สถานะ",
         "history": "📊 ประวัติ",
@@ -234,7 +292,6 @@ def _progress_bar_html(pct: float, color: str = "#0B5ED7", height: int = 10) -> 
 
 
 def _tile(label, value, sub, color):
-    """Small KPI tile"""
     return f"""
     <div style="background:#FFFFFF;border-radius:10px;padding:12px 14px;
                 border-left:4px solid {color};box-shadow:0 2px 6px rgba(0,51,102,0.06);">
@@ -246,7 +303,6 @@ def _tile(label, value, sub, color):
 
 
 def _strip_display_cols(row: dict) -> dict:
-    """ลบ display columns ก่อน save (ป้องกัน error)"""
     if not isinstance(row, dict):
         return row
     clean = dict(row)
@@ -256,14 +312,11 @@ def _strip_display_cols(row: dict) -> dict:
 
 
 def _get_weight_summary(df: pd.DataFrame) -> dict:
-    """คำนวณสรุป weight จาก df"""
     if df.empty:
         return {
-            "total": 0.0,
-            "n_items": 0,
+            "total": 0.0, "n_items": 0,
             "by_milestone": pd.DataFrame(columns=["Milestone", "Weight", "Count"]),
-            "is_valid": False,
-            "delta": -TARGET_WEIGHT_TOTAL,
+            "is_valid": False, "delta": -TARGET_WEIGHT_TOTAL,
         }
 
     work = df.copy()
@@ -285,11 +338,8 @@ def _get_weight_summary(df: pd.DataFrame) -> dict:
     delta = round(total - TARGET_WEIGHT_TOTAL, 2)
 
     return {
-        "total": round(total, 2),
-        "n_items": n_items,
-        "by_milestone": by_ms,
-        "is_valid": is_valid,
-        "delta": delta,
+        "total": round(total, 2), "n_items": n_items,
+        "by_milestone": by_ms, "is_valid": is_valid, "delta": delta,
     }
 
 
@@ -297,7 +347,6 @@ def _get_weight_summary(df: pd.DataFrame) -> dict:
 # ★ WEIGHT AUDIT PANEL
 # ============================================================
 def _render_weight_audit(df: pd.DataFrame):
-    """แสดง Weight Audit Panel"""
     st.markdown("---")
     st.markdown("### ⚖️ Weight Audit — ตรวจสอบน้ำหนักคะแนน")
 
@@ -308,7 +357,6 @@ def _render_weight_audit(df: pd.DataFrame):
     is_valid = summary["is_valid"]
     delta = summary["delta"]
 
-    # ---- KPI Tiles ----
     cA, cB, cC, cD = st.columns(4)
 
     with cA:
@@ -326,8 +374,7 @@ def _render_weight_audit(df: pd.DataFrame):
             w_color = "#D32F2F" if delta < 0 else "#F57C00"
             w_sub = f"{delta:+.2f}% จากเป้าหมาย"
         st.markdown(
-            _tile("⚖️ Weight รวม", f"{total_w:.2f}%",
-                  w_sub, w_color),
+            _tile("⚖️ Weight รวม", f"{total_w:.2f}%", w_sub, w_color),
             unsafe_allow_html=True,
         )
 
@@ -349,7 +396,6 @@ def _render_weight_audit(df: pd.DataFrame):
             unsafe_allow_html=True,
         )
 
-    # ---- Visual Progress Bar ----
     st.markdown("")
     if is_valid:
         bar_color = "#2E7D32"
@@ -371,20 +417,13 @@ def _render_weight_audit(df: pd.DataFrame):
         unsafe_allow_html=True,
     )
 
-    # ---- Warning + Fix Hint ----
     if not is_valid:
         if total_w < TARGET_WEIGHT_TOTAL:
             gap_txt = f"ขาดอีก <b>{abs(delta):.2f}%</b>"
-            action_hint = (
-                "กรุณาเพิ่ม weight ของ Deliverables ที่สำคัญ "
-                "หรือใช้เครื่องมือ Rebalance"
-            )
+            action_hint = "กรุณาเพิ่ม weight ของ Deliverables ที่สำคัญ หรือใช้เครื่องมือ Rebalance"
         else:
             gap_txt = f"เกินไป <b>{abs(delta):.2f}%</b>"
-            action_hint = (
-                "กรุณาลด weight ของ Deliverables ที่สำคัญน้อยลง "
-                "หรือใช้เครื่องมือ Rebalance"
-            )
+            action_hint = "กรุณาลด weight ของ Deliverables ที่สำคัญน้อยลง หรือใช้เครื่องมือ Rebalance"
 
         st.markdown(
             f"""
@@ -397,7 +436,6 @@ def _render_weight_audit(df: pd.DataFrame):
                     📌 {action_hint} — ไปที่
                     <b>🔧 Settings → 💾 Backup / Export → 
                     ⚖️ Rebalance Deliverable Weights</b>
-                    เพื่อปรับอัตโนมัติ
                 </span>
             </div>
             """,
@@ -416,7 +454,6 @@ def _render_weight_audit(df: pd.DataFrame):
             unsafe_allow_html=True,
         )
 
-    # ---- Breakdown Table ----
     st.markdown("")
     st.markdown("#### 📊 Breakdown ต่อ Milestone")
 
@@ -436,13 +473,8 @@ def _render_weight_audit(df: pd.DataFrame):
         }])
         display_df = pd.concat([display_df, total_row], ignore_index=True)
 
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # ---- Bar chart ----
         if len(by_ms) > 0:
             import plotly.graph_objects as go
             fig = go.Figure(data=[go.Bar(
@@ -458,10 +490,8 @@ def _render_weight_audit(df: pd.DataFrame):
                 ),
             )])
             fig.update_layout(
-                height=320,
-                plot_bgcolor="#FAFBFC",
-                xaxis_title="Milestone",
-                yaxis_title="Weight (%)",
+                height=320, plot_bgcolor="#FAFBFC",
+                xaxis_title="Milestone", yaxis_title="Weight (%)",
                 margin=dict(l=10, r=10, t=20, b=40),
                 showlegend=False,
             )
@@ -482,7 +512,7 @@ def render():
     df = repo.read()
     prog_df = ProgressRepo().read()
 
-    # ★ v5: ดึง sequence จาก DB/CSV
+    # ★ v6: เตรียม _sequence
     if df.empty:
         df["_sequence"] = pd.Series(dtype=int)
     else:
@@ -491,7 +521,6 @@ def render():
                 df["sequence"], errors="coerce"
             ).fillna(9999).astype(int)
         else:
-            # Fallback: parse จาก deliverable_id
             df["_sequence"] = df.apply(_get_sequence, axis=1)
 
     # กรองแถวขยะ
@@ -507,7 +536,7 @@ def render():
         ms_df = pd.DataFrame()
 
     # ============================================================
-    # ★ v4: คำนวณ Progress + Source (คำนึงถึง status)
+    # Progress + Source
     # ============================================================
     if not df.empty:
         progress_data = df.apply(
@@ -557,7 +586,6 @@ def render():
         st.markdown(_tile("🔵 กำลังดำเนินการ", f"{in_progress}",
                           "In Progress", "#00838F"), unsafe_allow_html=True)
 
-    # ---- Global Warning ----
     if not w_valid and total_dl > 0:
         st.markdown(f"""
         <div style="background:#FFF8E1;border-left:4px solid #F57C00;
@@ -585,13 +613,12 @@ def render():
     ])
 
     # ============================================================
-    # TAB 1 — LIST + FILTER + SEARCH
+    # TAB 1 — LIST
     # ============================================================
     with t1:
         if df.empty:
             st.info("ยังไม่มี Deliverable — ไปที่แท็บ ✏️ เพื่อเพิ่มรายการ")
         else:
-            # --- Filter row ---
             f1, f2, f3, f4 = st.columns([1, 1, 1, 2])
             with f1:
                 ms_filter = st.multiselect(
@@ -602,17 +629,13 @@ def render():
                 )
             with f2:
                 st_filter = st.multiselect(
-                    "Status",
-                    STATUSES,
-                    default=STATUSES,
-                    key="dl_filter_st",
+                    "Status", STATUSES, default=STATUSES, key="dl_filter_st",
                 )
             with f3:
-                # ★ v5: เปลี่ยน Sort option ให้ชัดเจน
                 sort_by = st.selectbox(
                     "Sort",
                     [
-                        "📋 ตามลำดับงาน (Sequence)",   # ★ default ใหม่
+                        "📋 ตามลำดับงาน (Sequence)",
                         "📈 Progress ↑",
                         "📈 Progress ↓",
                         "⚖️ Weight ↓",
@@ -624,7 +647,6 @@ def render():
                     "🔍 Search (ชื่อ / TOR Clause)", value="", key="dl_search"
                 )
 
-            # --- Apply filters ---
             view = df.copy()
             if ms_filter:
                 view = view[view["milestone_id"].isin(ms_filter)]
@@ -638,22 +660,19 @@ def render():
                     | view["deliverable_id"].astype(str).str.lower().str.contains(s, na=False)
                 ]
 
-            # --- Sort --- ★ v5
             if sort_by == "📋 ตามลำดับงาน (Sequence)":
                 view = _sort_by_sequence(view)
             elif sort_by == "📈 Progress ↑":
                 view = view.sort_values("_latest_progress", ascending=True)
             elif sort_by == "📈 Progress ↓":
                 view = view.sort_values("_latest_progress", ascending=False)
-            else:  # Weight ↓
+            else:
                 view = view.sort_values("weight", ascending=False)
 
             st.caption(
-                f"แสดง {len(view)} / {len(df)} รายการ "
-                f"· เรียงตาม: **{sort_by}**"
+                f"แสดง {len(view)} / {len(df)} รายการ · เรียงตาม: **{sort_by}**"
             )
 
-            # --- Render Card-style list ---
             for idx, (_, r) in enumerate(view.iterrows(), 1):
                 did = r["deliverable_id"]
                 prog = float(r["_latest_progress"])
@@ -662,7 +681,6 @@ def render():
                 status = str(r.get("status", "") or "")
                 seq = int(r.get("_sequence", 9999))
 
-                # สีตาม progress
                 if prog >= 100:
                     p_color = "#2E7D32"
                 elif prog >= 50:
@@ -696,10 +714,8 @@ def render():
                             unsafe_allow_html=True,
                         )
 
-                    # Progress bar
                     st.markdown(_progress_bar_html(prog, p_color), unsafe_allow_html=True)
 
-                    # Status row
                     st.markdown(
                         f"<div style='font-size:12px;color:#555;margin:6px 0 12px 0;'>"
                         f"<b>Status:</b> {_status_badge(status)} &nbsp;|&nbsp; "
@@ -711,7 +727,6 @@ def render():
                         unsafe_allow_html=True,
                     )
 
-            # --- Detailed table (toggle) ---
             with st.expander("📋 ดูตารางแบบละเอียด"):
                 table = view.drop(columns=DISPLAY_COLS, errors="ignore").copy()
                 st.dataframe(table, use_container_width=True, hide_index=True)
@@ -727,38 +742,43 @@ def render():
             key="dl_mode",
         )
 
-        def _next_dl_id() -> str:
-            if df.empty:
-                return "DLV-001"
-            nums = []
-            for x in df["deliverable_id"].astype(str):
-                if x.startswith("DLV-") and x[4:].isdigit():
-                    nums.append(int(x[4:]))
-            return f"DLV-{(max(nums) + 1) if nums else 1:03d}"
-
         # ---------- ADD ----------
         if mode == "➕ เพิ่มใหม่":
             st.markdown("### ➕ เพิ่ม Deliverable ใหม่")
 
-            # ★ v5: แสดง sequence สูงสุดปัจจุบัน
-            max_seq = int(df["_sequence"].max()) if not df.empty else 0
+            # ★ v6: เลือก Milestone ก่อน เพื่อคำนวณ ID + sequence
+            default_ms = ms_ids[0] if ms_ids else "MLS-01"
+            msid_sel = st.selectbox(
+                "Milestone ID",
+                ms_ids,
+                index=0,
+                key="dl_new_ms",
+                help="ID และ sequence จะคำนวณอัตโนมัติจาก Milestone ที่เลือก",
+            )
 
-            auto_id = _next_dl_id()
+            auto_id = _next_id_for_ms(df, msid_sel)
+            auto_seq = _next_sequence_for_ms(df, msid_sel)
+
+            st.info(
+                f"🎯 **ID ถัดไป:** `{auto_id}` · **Sequence:** `{auto_seq}` "
+                f"(เรียงต่อจากรายการสุดท้ายใน {msid_sel})"
+            )
+
             with st.form("dl_add_form", clear_on_submit=False):
-                c1, c2, c3 = st.columns(3)
-                did = c1.text_input("Deliverable ID", value=auto_id, key="dl_new_id")
-                msid = c2.selectbox("Milestone ID", ms_ids, key="dl_new_ms")
-                clause = c3.text_input("TOR Clause", value="", key="dl_new_clause")
-
-                # ★ v5: sequence input
-                c_seq = st.number_input(
-                    "ลำดับ (Sequence) — ใช้เรียงในตาราง",
-                    min_value=0, max_value=9999,
-                    value=max_seq + 1,
-                    step=1,
-                    key="dl_new_seq",
-                    help="ตัวเลขน้อยจะแสดงก่อน — ระบบใช้ sequence เรียงลำดับในตาราง",
+                c1, c2, c3 = st.columns([2, 1, 1])
+                did = c1.text_input(
+                    "Deliverable ID",
+                    value=auto_id,
+                    key="dl_new_id",
+                    help="แก้ไขได้ แต่แนะนำให้ใช้ค่าที่ระบบแนะนำ",
                 )
+                c2.text_input(
+                    "Milestone (แสดง)",
+                    value=msid_sel,
+                    disabled=True,
+                    key="dl_new_ms_display",
+                )
+                clause = c3.text_input("TOR Clause", value="", key="dl_new_clause")
 
                 name = st.text_input("ชื่อ Deliverable", value="", key="dl_new_name")
                 desc = st.text_area("คำอธิบาย", value="", height=80, key="dl_new_desc")
@@ -767,42 +787,52 @@ def render():
                 out = c4.text_input("Output ที่ต้องได้", value="", key="dl_new_out")
                 evi = c5.text_input("Evidence ที่ต้องส่ง", value="", key="dl_new_evi")
 
-                c6, c7, c8 = st.columns(3)
-                w = c6.number_input("Weight (%)", value=5.0, min_value=0.0, max_value=100.0,
-                                     step=0.5, key="dl_new_w",
-                                     help="น้ำหนักคะแนน — ระบบตรวจสอบผลรวมให้ = 100%")
-                ps = c7.date_input("Planned Start", value=pd.Timestamp.today(), key="dl_new_ps")
-                pf = c8.date_input("Planned Finish",
-                                    value=pd.Timestamp.today() + pd.Timedelta(days=30),
-                                    key="dl_new_pf")
+                c6, c7, c8, c9 = st.columns(4)
+                w = c6.number_input(
+                    "Weight (%)", value=5.0,
+                    min_value=0.0, max_value=100.0, step=0.5,
+                    key="dl_new_w",
+                )
+                c_seq = c7.number_input(
+                    "Sequence",
+                    min_value=0, max_value=9999,
+                    value=auto_seq, step=1,
+                    key="dl_new_seq",
+                    help=f"ตัวเลขน้อยจะแสดงก่อน · แนะนำ: {auto_seq}",
+                )
+                ps = c8.date_input(
+                    "Planned Start", value=pd.Timestamp.today(), key="dl_new_ps",
+                )
+                pf = c9.date_input(
+                    "Planned Finish",
+                    value=pd.Timestamp.today() + pd.Timedelta(days=30),
+                    key="dl_new_pf",
+                )
 
-                c9, c10 = st.columns(2)
-                init_status = c9.selectbox("สถานะเริ่มต้น", STATUSES, key="dl_new_st")
-                init_comp = c10.selectbox("Compliance", COMPLIANCE_STATUSES, key="dl_new_comp")
+                c10, c11 = st.columns(2)
+                init_status = c10.selectbox("สถานะเริ่มต้น", STATUSES, key="dl_new_st")
+                init_comp = c11.selectbox("Compliance", COMPLIANCE_STATUSES, key="dl_new_comp")
 
                 if total_dl > 0:
                     new_total = total_weight + float(w)
                     delta = new_total - TARGET_WEIGHT_TOTAL
                     if abs(delta) < WEIGHT_TOLERANCE:
-                        st.info(
-                            f"💡 **Weight หลังเพิ่ม:** {new_total:.2f}% "
-                            f"→ ✅ ครบ 100%"
-                        )
+                        st.info(f"💡 **Weight หลังเพิ่ม:** {new_total:.2f}% → ✅ ครบ 100%")
                     else:
                         st.warning(
                             f"💡 **Weight หลังเพิ่ม:** {new_total:.2f}% "
-                            f"({delta:+.2f}% จากเป้าหมาย 100%) — "
-                            f"ระบบจะเตือนหลังบันทึก"
+                            f"({delta:+.2f}% จากเป้าหมาย 100%)"
                         )
 
-                submit = st.form_submit_button("💾 เพิ่ม Deliverable",
-                                                type="primary", use_container_width=True)
+                submit = st.form_submit_button(
+                    "💾 เพิ่ม Deliverable", type="primary", use_container_width=True,
+                )
 
             if submit:
                 try:
                     row = {
                         "deliverable_id": did.strip(),
-                        "milestone_id": msid,
+                        "milestone_id": msid_sel,
                         "tor_clause": clause,
                         "deliverable_name": name,
                         "description": desc,
@@ -819,24 +849,23 @@ def render():
                         "review_date": "",
                         "review_comment": "",
                         "updated_at": now_str(),
-                        "sequence": int(c_seq),   # ★ v5
+                        "sequence": int(c_seq),
                     }
                     _validate_dl(row)
 
                     if did.strip() in df["deliverable_id"].astype(str).values:
-                        raise ValidationError(f"⚠️ รหัส `{did}` มีอยู่แล้ว — กรุณาใช้รหัสอื่น")
+                        raise ValidationError(f"⚠️ รหัส `{did}` มีอยู่แล้ว")
 
                     row_clean = _strip_display_cols(row)
-
                     repo.upsert(row_clean, key="deliverable_id")
                     append_audit(
                         st.session_state.user, "CREATE", "DELIVERABLE",
                         row_clean["deliverable_id"],
                         old_value="",
                         new_value=str(row_clean)[:500],
-                        reason="เพิ่ม Deliverable ใหม่",
+                        reason=f"เพิ่ม Deliverable ใหม่ (MS: {msid_sel}, Seq: {int(c_seq)})",
                     )
-                    st.success(f"✅ เพิ่ม `{did}` สำเร็จ (Sequence: {int(c_seq)})")
+                    st.success(f"✅ เพิ่ม `{did}` สำเร็จ (Seq: {int(c_seq)})")
                     st.rerun()
                 except ValidationError as e:
                     st.error(str(e))
@@ -850,7 +879,6 @@ def render():
             if df.empty:
                 st.info("ยังไม่มี Deliverable ให้แก้ไข")
             else:
-                # ★ v5: เรียง dropdown ตาม sequence
                 df_sorted = _sort_by_sequence(df)
                 dl_sel = st.selectbox(
                     "เลือก Deliverable",
@@ -863,7 +891,6 @@ def render():
                 )
                 r = df[df["deliverable_id"] == dl_sel].iloc[0]
 
-                # --- Reference info ---
                 info1, info2, info3 = st.columns(3)
                 with info1:
                     st.markdown(f"**📌 Milestone:** `{r['milestone_id']}`  \n"
@@ -884,34 +911,52 @@ def render():
                     msid_options = ms_ids if r["milestone_id"] in ms_ids else [r["milestone_id"]] + ms_ids
                     msid_idx = msid_options.index(r["milestone_id"]) if r["milestone_id"] in msid_options else 0
                     msid = c1.selectbox("Milestone ID", msid_options, index=msid_idx, key="dl_edit_ms")
-                    clause = c2.text_input("TOR Clause",
-                                            value=str(r.get("tor_clause", "")), key="dl_edit_clause")
-                    w = c3.number_input("Weight (%)",
-                                         value=float(r.get("weight", 0) or 0),
-                                         min_value=0.0, max_value=100.0, step=0.5,
-                                         key="dl_edit_w")
+                    clause = c2.text_input(
+                        "TOR Clause", value=str(r.get("tor_clause", "")), key="dl_edit_clause",
+                    )
+                    w = c3.number_input(
+                        "Weight (%)",
+                        value=float(r.get("weight", 0) or 0),
+                        min_value=0.0, max_value=100.0, step=0.5,
+                        key="dl_edit_w",
+                    )
 
-                    # ★ v5: sequence edit
+                    # ★ v6: เตือนถ้าเปลี่ยน milestone
+                    if msid != r["milestone_id"]:
+                        st.warning(
+                            f"⚠️ **คุณกำลังเปลี่ยน Milestone** "
+                            f"จาก `{r['milestone_id']}` → `{msid}`  \n"
+                            f"แนะนำให้ปรับ **Sequence** และ **Deliverable ID** "
+                            f"ให้สอดคล้องกับ milestone ใหม่"
+                        )
+
                     c_seq_edit = st.number_input(
-                        "ลำดับ (Sequence)",
+                        "Sequence",
                         min_value=0, max_value=9999,
                         value=int(r.get("_sequence", 9999)),
-                        step=1,
-                        key="dl_edit_seq",
+                        step=1, key="dl_edit_seq",
                         help="ตัวเลขน้อยจะแสดงก่อน",
                     )
 
-                    name = st.text_input("ชื่อ Deliverable",
-                                          value=str(r.get("deliverable_name", "")), key="dl_edit_name")
-                    desc = st.text_area("คำอธิบาย",
-                                         value=str(r.get("description", "")),
-                                         height=80, key="dl_edit_desc")
+                    name = st.text_input(
+                        "ชื่อ Deliverable",
+                        value=str(r.get("deliverable_name", "")), key="dl_edit_name",
+                    )
+                    desc = st.text_area(
+                        "คำอธิบาย",
+                        value=str(r.get("description", "")),
+                        height=80, key="dl_edit_desc",
+                    )
 
                     c4, c5 = st.columns(2)
-                    out = c4.text_input("Output ที่ต้องได้",
-                                         value=str(r.get("required_output", "")), key="dl_edit_out")
-                    evi = c5.text_input("Evidence ที่ต้องส่ง",
-                                         value=str(r.get("required_evidence", "")), key="dl_edit_evi")
+                    out = c4.text_input(
+                        "Output ที่ต้องได้",
+                        value=str(r.get("required_output", "")), key="dl_edit_out",
+                    )
+                    evi = c5.text_input(
+                        "Evidence ที่ต้องส่ง",
+                        value=str(r.get("required_evidence", "")), key="dl_edit_evi",
+                    )
 
                     c6, c7 = st.columns(2)
                     ps_val = _to_date(r.get("planned_start")) or date.today()
@@ -929,29 +974,31 @@ def render():
                     comp = c9.selectbox("Compliance", comp_options, index=comp_idx, key="dl_edit_comp")
 
                     c10, c11 = st.columns(2)
-                    reviewer = c10.text_input("Reviewer",
-                                               value=str(r.get("reviewer", "")), key="dl_edit_reviewer")
+                    reviewer = c10.text_input(
+                        "Reviewer", value=str(r.get("reviewer", "")), key="dl_edit_reviewer",
+                    )
                     rev_date_val = _to_date(r.get("review_date")) or date.today()
-                    rev_date = c11.date_input("Review Date", value=rev_date_val, key="dl_edit_revdate")
+                    rev_date = c11.date_input(
+                        "Review Date", value=rev_date_val, key="dl_edit_revdate",
+                    )
 
-                    rev_comment = st.text_area("Review Comment",
-                                                value=str(r.get("review_comment", "")),
-                                                height=80, key="dl_edit_revcomment")
+                    rev_comment = st.text_area(
+                        "Review Comment",
+                        value=str(r.get("review_comment", "")),
+                        height=80, key="dl_edit_revcomment",
+                    )
 
                     old_w = float(r.get("weight", 0) or 0)
                     new_total = total_weight - old_w + float(w)
                     delta_preview = new_total - TARGET_WEIGHT_TOTAL
                     if abs(delta_preview) < WEIGHT_TOLERANCE:
-                        st.info(
-                            f"💡 **Weight รวมหลังแก้:** {new_total:.2f}% → ✅ ครบ 100%"
-                        )
+                        st.info(f"💡 **Weight รวมหลังแก้:** {new_total:.2f}% → ✅ ครบ 100%")
                     else:
                         st.warning(
                             f"💡 **Weight รวมหลังแก้:** {new_total:.2f}% "
                             f"({delta_preview:+.2f}% จากเป้าหมาย 100%)"
                         )
 
-                    # Preview: ถ้าเปลี่ยนเป็น Accepted → actual = 100%
                     if status != r["status"]:
                         old_prog, old_src = _latest_actual(
                             dl_sel, prog_df, status=r.get("status")
@@ -968,10 +1015,12 @@ def render():
                             )
 
                     c_btn1, c_btn2 = st.columns([1, 1])
-                    save_edit = c_btn1.form_submit_button("💾 บันทึก",
-                                                            type="primary", use_container_width=True)
-                    reset_edit = c_btn2.form_submit_button("↩️ ยกเลิกการแก้ไข",
-                                                             use_container_width=True)
+                    save_edit = c_btn1.form_submit_button(
+                        "💾 บันทึก", type="primary", use_container_width=True,
+                    )
+                    reset_edit = c_btn2.form_submit_button(
+                        "↩️ ยกเลิกการแก้ไข", use_container_width=True,
+                    )
 
                 if reset_edit:
                     for k in ["dl_edit_ms", "dl_edit_clause", "dl_edit_w", "dl_edit_name",
@@ -1000,7 +1049,7 @@ def render():
                             "review_date": str(rev_date) if rev_date else "",
                             "review_comment": rev_comment,
                             "updated_at": now_str(),
-                            "sequence": int(c_seq_edit),   # ★ v5
+                            "sequence": int(c_seq_edit),
                         })
                         _validate_dl(new_r)
 
@@ -1013,7 +1062,7 @@ def render():
                             new_r["deliverable_id"],
                             old_value=str(old_r)[:500],
                             new_value=str(new_r)[:500],
-                            reason="แก้ไข Deliverable",
+                            reason=f"แก้ไข Deliverable (Seq: {int(c_seq_edit)})",
                         )
                         st.success(f"✅ อัปเดต `{dl_sel}` สำเร็จ")
                         st.rerun()
@@ -1033,9 +1082,8 @@ def render():
         elif df.empty:
             st.info("ไม่มี Deliverable ให้ลบ")
         else:
-            st.caption("⚠️ ข้อมูลยังอยู่ใน CSV — ซ่อนใน UI เท่านั้น สามารถกู้คืนได้")
+            st.caption("⚠️ ข้อมูลยังอยู่ใน DB — ซ่อนใน UI เท่านั้น สามารถกู้คืนได้")
 
-            # ★ v5: เรียงตาม sequence ใน dropdown
             df_del_sorted = _sort_by_sequence(df)
             del_id = st.selectbox(
                 "เลือก Deliverable ที่จะลบ",
@@ -1056,7 +1104,7 @@ def render():
                 else:
                     try:
                         repo.soft_delete(del_id, reason, st.session_state.user)
-                        st.success(f"✅ ซ่อน `{del_id}` สำเร็จ — ดู Audit Log เพื่อยืนยัน")
+                        st.success(f"✅ ซ่อน `{del_id}` สำเร็จ — ดู Audit Log")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ {e}")
@@ -1070,33 +1118,29 @@ def render():
             if vd_dl.empty:
                 st.info("ไม่มีรายการที่ถูก Void")
             else:
-                rid = st.selectbox("เลือก ID ที่จะคืน",
-                                    vd_dl["record_id"].tolist(), key="dl_restore_sel")
+                rid = st.selectbox(
+                    "เลือก ID ที่จะคืน",
+                    vd_dl["record_id"].tolist(), key="dl_restore_sel",
+                )
                 if st.button("↩️ คืนค่า", key="dl_btn_restore"):
                     if repo.restore(rid, st.session_state.user):
                         st.success(f"✅ คืนค่า `{rid}` สำเร็จ")
                         st.rerun()
 
     # ============================================================
-    # TAB 4 — CSV + ★ WEIGHT AUDIT
+    # TAB 4 — CSV + WEIGHT AUDIT
     # ============================================================
     with t4:
         st.markdown("### 📥 ข้อมูล CSV (อ่านเท่านั้น)")
         st.caption("ข้อมูลจริงอยู่ในไฟล์ `data/master/deliverable_master.csv`")
 
-        # ★ v5: แสดงข้อมูลแบบเรียงตาม sequence
         df_clean = df.drop(columns=DISPLAY_COLS, errors="ignore").copy()
         df_clean = _sort_by_sequence(df)
 
-        # แสดง # ลำดับด้วย
         df_display = df_clean.drop(columns=DISPLAY_COLS, errors="ignore").copy()
         df_display.insert(0, "#", range(1, len(df_display) + 1))
 
-        st.dataframe(
-            df_display,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
 
         st.download_button(
             "⬇️ ดาวน์โหลด deliverable_master.csv",
@@ -1107,9 +1151,6 @@ def render():
             key="dl_download_csv",
         )
 
-        # ═══════════════════════════════════════════════════════════
-        # ★ WEIGHT AUDIT
-        # ═══════════════════════════════════════════════════════════
         if not df_clean.empty:
             _render_weight_audit(
                 df_clean.drop(columns=DISPLAY_COLS, errors="ignore")
@@ -1127,20 +1168,51 @@ def render():
                 )
                 st.dataframe(wsum, use_container_width=True, hide_index=True)
 
-        # ★ v5: Sequence Viewer (debug)
-        with st.expander("🔢 ตรวจสอบ Sequence (ใช้สำหรับ debug)", expanded=False):
+        # ═══════════════════════════════════════════════════════════
+        # ★ v6: Sequence & ID Validation Viewer
+        # ═══════════════════════════════════════════════════════════
+        with st.expander("🔢 ตรวจสอบ Sequence & ID (Debug)", expanded=False):
             if df_clean.empty:
                 st.info("ไม่มีข้อมูล")
             else:
-                seq_view = df_clean[["deliverable_id", "milestone_id",
-                                      "sequence", "_sequence",
-                                      "planned_start", "deliverable_name"]].copy()
-                seq_view.columns = ["ID", "Milestone", "sequence (DB)",
-                                     "_sequence (calc)", "Start", "ชื่อ"]
-                seq_view["ชื่อ"] = seq_view["ชื่อ"].astype(str).str.slice(0, 50)
-                st.dataframe(seq_view, use_container_width=True, hide_index=True)
-                st.caption(
-                    "💡 `_sequence` = ค่าที่ใช้เรียงจริง · "
-                    "ถ้า `sequence (DB)` = 0 หรือว่าง แสดงว่ายังไม่ได้อัปเดต "
-                    "— รัน `python migrations/add_sequence_field.py`"
+                check = df_clean.copy()
+
+                # Auto-calc seq จาก ID
+                check["_auto_seq"] = check["deliverable_id"].apply(
+                    lambda x: _parse_id(x)[1] if _parse_id(x)[1] is not None else 9999
                 )
+
+                # ตรวจ: sequence ตรงกับ auto-calc ไหม?
+                def _check_match(row):
+                    seq_val = int(row.get("_sequence", 9999))
+                    auto_val = int(row.get("_auto_seq", 9999))
+                    if seq_val == auto_val:
+                        return "✅"
+                    return f"⚠️ {seq_val}≠{auto_val}"
+
+                check["_match"] = check.apply(_check_match, axis=1)
+
+                seq_view = check[[
+                    "deliverable_id", "milestone_id",
+                    "sequence", "_sequence", "_auto_seq", "_match",
+                    "planned_start", "deliverable_name",
+                ]].copy()
+                seq_view.columns = [
+                    "ID", "Milestone", "sequence (DB)", "_sequence (sort)",
+                    "_auto_seq (จาก ID)", "Match", "Start", "ชื่อ",
+                ]
+                seq_view["ชื่อ"] = seq_view["ชื่อ"].astype(str).str.slice(0, 50)
+
+                st.dataframe(seq_view, use_container_width=True, hide_index=True)
+
+                n_mismatch = (check["_match"] != "✅").sum()
+                if n_mismatch > 0:
+                    st.warning(
+                        f"⚠️ พบ **{n_mismatch}** รายการที่ sequence ไม่ตรงกับ ID  \n"
+                        f"💡 ควรตรวจสอบและแก้ไข sequence ใน Edit mode "
+                        f"หรือรัน `force_reseed_master()`"
+                    )
+                else:
+                    st.success(
+                        "✅ sequence ตรงกับ ID ทุก รายการ — เรียงถูกต้อง"
+                    )

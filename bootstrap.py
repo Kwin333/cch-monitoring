@@ -5,15 +5,21 @@
 Contract Signed: 18 ส.ค. 2569 (2026-08-18)
 Payment Schedule: 10/30/30/20/10
 
+★ v4 — Renumber IDs ตาม Excel order:
+- ★ Deliverable IDs เรียงตาม # ใน Excel ทุก Milestone
+- M1: DLV-M1-01 → DLV-M1-14 (14 items)
+- M2: DLV-M2-01 → DLV-M2-30 (30 items — รวม 1.6.x Interviews + Monthly)
+- M3: DLV-M3-01 → DLV-M3-20 (20 items)
+- M4: DLV-M4-01 → DLV-M4-19 (19 items)
+- M5: DLV-M5-01 → DLV-M5-12 (12 items — ไม่เปลี่ยน)
+- ✅ ลบ duplicate DLV-M1-20 (1.5 Interview Overview ซ้ำ)
+- ✅ เดิม DLV-M1-19 (Contract Sign Off) → กลายเป็น DLV-M1-01
+- ✅ เดิม DLV-M2-18..30 (Interviews/Monthly) → กลายเป็น DLV-M2-01..18
+
 ★ v3 — อัปเดต 261014:
 - เพิ่ม `status` field ในทุก deliverable
 - M1 ทั้งหมด = Accepted (เสร็จสิ้น)
 - M2-03 (SOPs) และ M2-12 (PF Package) = In Progress
-- เพิ่ม DLV-M1-19: 1.1 Contract Sign Off
-- เพิ่ม DLV-M2-18..28: 1.6 Interview 10 Departments (11 รายการ)
-- เพิ่ม Monthly Reports (ต.ค., พ.ย., ม.ค., มี.ค., เม.ย., พ.ค.)
-- Repurpose DLV-M1-05 → "1.5 Interview Overview 10 Departments"
-- ลบ DLV-M1-06..10 (ย้ายไป M2 เป็น 1.6.x)
 
 ★ v2 — แก้ไข:
 - เพิ่ม `normalize_deliverable_weights()` — normalize weights ให้รวม = 100.00%
@@ -86,20 +92,29 @@ def normalize_deliverable_weights(
 
 
 # ============================================================
-# ★ DELIVERABLE MASTER — Full Timeline v9 (261014)
+# ★ DELIVERABLE MASTER — Full Timeline (Renumbered ตาม Excel)
 # ============================================================
 # ⚠️ ค่า weight เป็นค่าดิบ — ระบบ normalize ให้เป็น 100.00% อัตโนมัติ
-# ⚠️ field "status" ใช้ระบุสถานะปัจจุบัน (ตาม Excel v9)
+# ⚠️ field "status" ใช้ระบุสถานะปัจจุบัน
 #    - "Not Started" | "In Progress" | "Accepted"
+# ⚠️ ID เรียงตาม # ใน Excel ทุก Milestone (เรียงตาม period/planned_start)
 # ============================================================
 
 DELIVERABLES_FULL = [
     # ═══════════════════════════════════════════════════════════
     # M1 — INCEPTION REPORT (31 ส.ค. 69) — Payment 10%
-    # ✅ เสร็จสิ้นทั้งหมด
+    # ✅ เสร็จสิ้นทั้งหมด (14 items)
     # ═══════════════════════════════════════════════════════════
     {
-        "id": "DLV-M1-01", "ms": "MLS-01", "tor": "4.1.1",
+        "id": "DLV-M1-01", "ms": "MLS-01", "tor": "-",
+        "name": "1.1 Contract Sign Off (ลงนามสัญญา)",
+        "desc": "ลงนามสัญญาของโปรเจค (17 ส.ค. 69)",
+        "output": "Signed Contract", "evidence": "CONTRACT-SIGN",
+        "weight": 0.3, "start": "2026-08-17", "finish": "2026-08-17",
+        "status": "Accepted",
+    },
+    {
+        "id": "DLV-M1-02", "ms": "MLS-01", "tor": "4.1.1",
         "name": "1.1 Kick-off Meeting (ภายใน 15 วัน)",
         "desc": "ต้องจัดภายใน 15 วันหลังลงนามสัญญา ตาม TOR ข้อ 5",
         "output": "รายงานการประชุม Kick-off",
@@ -108,7 +123,7 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-02", "ms": "MLS-01", "tor": "4.1.1",
+        "id": "DLV-M1-03", "ms": "MLS-01", "tor": "4.1.1",
         "name": "1.2 Project Charter (ความเป็นมา + วัตถุประสงค์)",
         "desc": "6.1.1-6.1.2 ความเป็นมา + วัตถุประสงค์โครงการ",
         "output": "Project Charter", "evidence": "CHARTER-CCH-M1",
@@ -116,7 +131,7 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-03", "ms": "MLS-01", "tor": "4.1.1",
+        "id": "DLV-M1-04", "ms": "MLS-01", "tor": "4.1.1",
         "name": "1.3 แผนการดำเนินโครงการโดยละเอียด (Project Timeline)",
         "desc": "6.1.3 รูปแบบ/วิธี/ขั้นตอน/ระยะเวลา + ผลที่คาดว่าจะได้รับ",
         "output": "Project Plan + Timeline", "evidence": "PLAN-CCH-M1",
@@ -124,7 +139,7 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-04", "ms": "MLS-01", "tor": "4.1.1",
+        "id": "DLV-M1-05", "ms": "MLS-01", "tor": "4.1.1",
         "name": "1.4 ผังการบริหารของโครงการ (Org Chart)",
         "desc": "6.1.4 Organization Chart ทีมโครงการ",
         "output": "Organization Chart", "evidence": "ORG-CCH-M1",
@@ -132,16 +147,15 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-05", "ms": "MLS-01", "tor": "4.1.1",
+        "id": "DLV-M1-06", "ms": "MLS-01", "tor": "4.1.1",
         "name": "1.5 Interview Overview 10 Departments",
         "desc": "Overall interview 10 departments before individual interview (18 ส.ค. - 31 ต.ค. 69)",
         "output": "Interview Overview Notes", "evidence": "INT-OVERVIEW-M1",
         "weight": 0.3, "start": "2026-08-18", "finish": "2026-10-31",
         "status": "Accepted",
     },
-    # ── 1.11 - 1.14 (ผลการศึกษาเบื้องต้น) ──
     {
-        "id": "DLV-M1-11", "ms": "MLS-01", "tor": "4.1.1",
+        "id": "DLV-M1-07", "ms": "MLS-01", "tor": "4.1.1",
         "name": "1.11 ผลศึกษาเบื้องต้น 4.1.1 (Compliance Advisory)",
         "desc": "6.1.5 Compliance Baseline + Gap Analysis Initial",
         "output": "Initial Study Report", "evidence": "REPORT-M1-COMP",
@@ -149,7 +163,7 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-12", "ms": "MLS-01", "tor": "4.2",
+        "id": "DLV-M1-08", "ms": "MLS-01", "tor": "4.2",
         "name": "1.12 Initial Governance Review",
         "desc": "6.1.6 ผลทบทวนโครงสร้างการกำกับดูแลเบื้องต้น",
         "output": "Governance Review Report", "evidence": "REPORT-M1-GOV",
@@ -157,7 +171,7 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-13", "ms": "MLS-01", "tor": "4.3",
+        "id": "DLV-M1-09", "ms": "MLS-01", "tor": "4.3",
         "name": "1.13 Business Assumptions + Context (Initial)",
         "desc": "6.1.7 การวิเคราะห์สมมติฐานทางธุรกิจเบื้องต้น",
         "output": "Business Assumptions Doc", "evidence": "REPORT-M1-BIZ",
@@ -165,16 +179,15 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-14", "ms": "MLS-01", "tor": "4.4",
+        "id": "DLV-M1-10", "ms": "MLS-01", "tor": "4.4",
         "name": "1.14 Monitoring Framework + KPIs (Initial)",
         "desc": "6.1.8 กรอบ Monitoring + KPI เบื้องต้น",
         "output": "Monitoring Framework", "evidence": "REPORT-M1-MON",
         "weight": 0.6, "start": "2026-08-18", "finish": "2026-08-31",
         "status": "Accepted",
     },
-    # ── Submission & Acceptance ──
     {
-        "id": "DLV-M1-15", "ms": "MLS-01", "tor": "7.1",
+        "id": "DLV-M1-11", "ms": "MLS-01", "tor": "7.1",
         "name": "▶ ส่ง(ร่าง) Inception ให้คณะกรรมการ (10 วันก่อน)",
         "desc": "จัดหนังสือส่ง + Slide นำเสนอ",
         "output": "Draft Submission", "evidence": "SUB-DRAFT-M1",
@@ -182,7 +195,7 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-16", "ms": "MLS-01", "tor": "7.1",
+        "id": "DLV-M1-12", "ms": "MLS-01", "tor": "7.1",
         "name": "▶ ปรับปรุง Inception ตามข้อแก้ไข",
         "desc": "แก้ไขตาม Comment ของคณะกรรมการ",
         "output": "Revised Report", "evidence": "SUB-REV-M1",
@@ -190,7 +203,7 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-17", "ms": "MLS-01", "tor": "7.1",
+        "id": "DLV-M1-13", "ms": "MLS-01", "tor": "7.1",
         "name": "🎯 Submit Inception Report — 31 ส.ค. 69 (Day 30)",
         "desc": "2 ชุด + USB 2 อัน | Payment 10% ของราคาจ้าง",
         "output": "Final Inception Report", "evidence": "ACCEPT-M1-REQ",
@@ -198,166 +211,21 @@ DELIVERABLES_FULL = [
         "status": "Accepted",
     },
     {
-        "id": "DLV-M1-18", "ms": "MLS-01", "tor": "7.1",
+        "id": "DLV-M1-14", "ms": "MLS-01", "tor": "7.1",
         "name": "👥 ประชุมตรวจรับ Inception Report",
         "desc": "คณะกรรมการตรวจรับงาน",
         "output": "Acceptance Minutes", "evidence": "ACC-MIN-M1",
         "weight": 0.4, "start": "2026-09-01", "finish": "2026-09-01",
         "status": "Accepted",
     },
-    # ── NEW: Contract Sign Off ──
-    {
-        "id": "DLV-M1-19", "ms": "MLS-01", "tor": "-",
-        "name": "1.1 Contract Sign Off (ลงนามสัญญา)",
-        "desc": "ลงนามสัญญาของโปรเจค (17 ส.ค. 69)",
-        "output": "Signed Contract", "evidence": "CONTRACT-SIGN",
-        "weight": 0.3, "start": "2026-08-17", "finish": "2026-08-17",
-        "status": "Accepted",
-    },
 
     # ═══════════════════════════════════════════════════════════
     # M2 — PROGRESS I REPORT (16 ธ.ค. 69) — Payment 30%
-    # 🔥 PF License ยื่นในงวดนี้
+    # 🔥 PF License ยื่นในงวดนี้ (30 items)
     # ═══════════════════════════════════════════════════════════
+    # ── 1.6 Interview 10 Departments (11 items) ──
     {
-        "id": "DLV-M2-01", "ms": "MLS-02", "tor": "4.1.2",
-        "name": "2.1 CCH Operational Workflow (5 กระบวนการ)",
-        "desc": "6.2.1 รับข้อมูล+ตรวจสอบ+ประมวลผล+กระทบยอด+ส่ง สถ.การเงิน",
-        "output": "Operational Workflow Draft", "evidence": "REPORT-M2-WF",
-        "weight": 2.5, "start": "2026-10-08", "finish": "2026-11-30",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-02", "ms": "MLS-02", "tor": "4.1.3",
-        "name": "2.2 Risk Assessment (เบื้องต้น)",
-        "desc": "6.2.2 Risk Assessment เบื้องต้น + Risk Matrix",
-        "output": "Risk Assessment Report", "evidence": "REPORT-M2-RISK",
-        "weight": 1.5, "start": "2026-10-08", "finish": "2026-11-21",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-03", "ms": "MLS-02", "tor": "4.1.4",
-        "name": "2.3 SOPs (เบื้องต้น) + Internal Control",
-        "desc": "6.2.3 Draft SOP Manual + Control Procedures — ร่าง SOPs, การควบคุมภายใน, ขั้นตอนตรวจสอบธุรกรรม, AML/CFT, Audit Checklists และ Three Lines of Defense",
-        "output": "Draft SOP Manual", "evidence": "REPORT-M2-SOP",
-        "weight": 2.0, "start": "2026-10-08", "finish": "2026-11-30",
-        "status": "In Progress",   # ← กำลังดำเนินการ
-    },
-    {
-        "id": "DLV-M2-04", "ms": "MLS-02", "tor": "4.1.6",
-        "name": "2.4 Data Retention Framework (เบื้องต้น)",
-        "desc": "6.2.4 Data Retention Policy + Data Lifecycle",
-        "output": "Data Retention Draft", "evidence": "REPORT-M2-DR",
-        "weight": 1.0, "start": "2026-10-08", "finish": "2026-11-30",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-05", "ms": "MLS-02", "tor": "4.1.7",
-        "name": "2.5 Draft Compliance Roadmap + Reporting Framework",
-        "desc": "6.2.5 Regulatory Reporting Framework + Templates",
-        "output": "Compliance Roadmap", "evidence": "REPORT-M2-CR",
-        "weight": 1.5, "start": "2026-10-08", "finish": "2026-11-30",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-06", "ms": "MLS-02", "tor": "4.1.8",
-        "name": "2.6 Source of Fund / Channel Code Design",
-        "desc": "6.2.6 คู่มือทดสอบเติมเงิน + วิธีตรวจสอบ",
-        "output": "Source of Fund Design", "evidence": "REPORT-M2-SOF",
-        "weight": 1.5, "start": "2026-10-22", "finish": "2026-12-04",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-07", "ms": "MLS-02", "tor": "4.1.9",
-        "name": "2.7 Electronic Wallet Design (วงเงิน + โครงสร้าง)",
-        "desc": "6.2.7 การกำหนดวงเงิน + Fair Media + จำนวน Wallet",
-        "output": "E-Wallet Design Doc", "evidence": "REPORT-M2-EW",
-        "weight": 1.5, "start": "2026-10-22", "finish": "2026-12-04",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-08", "ms": "MLS-02", "tor": "4.1",
-        "name": "2.8 Workshops ร่วมกับหน่วยงานภายใน",
-        "desc": "6.2.8 Workshop ทดสอบและปรับปรุงกระบวนการ",
-        "output": "Workshop Report", "evidence": "REPORT-M2-WS",
-        "weight": 1.0, "start": "2026-11-08", "finish": "2026-12-04",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-09", "ms": "MLS-02", "tor": "4.2",
-        "name": "2.9 ร่าง Org Structure + Key Roles (เบื้องต้น)",
-        "desc": "6.2.9 Organisational Structure + Roles Draft + System Control Board",
-        "output": "Draft Org Structure", "evidence": "REPORT-M2-ORG",
-        "weight": 1.5, "start": "2026-09-01", "finish": "2026-11-30",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-10", "ms": "MLS-02", "tor": "4.3",
-        "name": "2.10 Business Model Overview + Revenue + Cost (เบื้องต้น)",
-        "desc": "6.2.10 BM Overview + Revenue Model + Cost Structure",
-        "output": "BM Overview Draft", "evidence": "REPORT-M2-BM",
-        "weight": 2.0, "start": "2026-09-01", "finish": "2026-11-30",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-11", "ms": "MLS-02", "tor": "4.4",
-        "name": "2.11 Daily Transaction + Monthly Performance Reporting",
-        "desc": "6.2.11 Daily TXN Monitoring + Monthly Performance",
-        "output": "Performance Report", "evidence": "REPORT-M2-PERF",
-        "weight": 1.0, "start": "2026-10-08", "finish": "2026-12-14",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-12", "ms": "MLS-02", "tor": "4.5.1 (PF)",
-        "name": "🔥 2.12 PF License Application Package ⭐",
-        "desc": "4.5.1 เอกสารครบชุด (Corp+Compliance+Tech+AML)",
-        "output": "PF Application Package", "evidence": "PKG-PF-REQ",
-        "weight": 3.0, "start": "2026-08-18", "finish": "2026-10-15",
-        "status": "In Progress",   # ← กำลังดำเนินการ
-    },
-    {
-        "id": "DLV-M2-13", "ms": "MLS-02", "tor": "4.5.2 (PF)",
-        "name": "🔥 2.13 PF License Pre-review + Submit to BOT ⭐",
-        "desc": "ยื่นเอกสาร PF ต่อ ธปท.",
-        "output": "BOT Submission Receipt", "evidence": "BOT-SUB-PF",
-        "weight": 2.0, "start": "2026-09-30", "finish": "2026-10-31",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-14", "ms": "MLS-02", "tor": "7.2",
-        "name": "▶ ส่ง(ร่าง) Progress I ให้คณะกรรมการ (10 วันก่อน)",
-        "desc": "จัดหนังสือส่ง + Slide",
-        "output": "Draft Submission", "evidence": "SUB-DRAFT-M2",
-        "weight": 0.5, "start": "2026-12-06", "finish": "2026-12-06",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-15", "ms": "MLS-02", "tor": "7.2",
-        "name": "▶ ปรับปรุง Progress I ตามข้อแก้ไข",
-        "desc": "แก้ไขตาม Comment",
-        "output": "Revised Report", "evidence": "SUB-REV-M2",
-        "weight": 0.5, "start": "2026-12-08", "finish": "2026-12-16",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-16", "ms": "MLS-02", "tor": "7.2",
-        "name": "🎯 Submit Progress I Report — 16 ธ.ค. 69 (Day 120)",
-        "desc": "2 ชุด + USB 2 อัน | Payment 30% ของราคาจ้าง",
-        "output": "Final Progress I Report", "evidence": "ACCEPT-M2-REQ",
-        "weight": 1.5, "start": "2026-12-16", "finish": "2026-12-16",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M2-17", "ms": "MLS-02", "tor": "7.2",
-        "name": "👥 ประชุมตรวจรับ Progress I Report",
-        "desc": "คณะกรรมการตรวจรับงาน",
-        "output": "Acceptance Minutes", "evidence": "ACC-MIN-M2",
-        "weight": 0.5, "start": "2026-12-17", "finish": "2026-12-25",
-        "status": "Not Started",
-    },
-    # ── NEW: Interview 10 Departments (1.6.x) ──
-    {
-        "id": "DLV-M2-18", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-01", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6 Interview 10 Departments (Overall)",
         "desc": "นัดสัมภาษณ์แยกแต่ละหน่วยงาน รวม 10 แห่ง",
         "output": "Interview Plan", "evidence": "INT-PLAN-M2",
@@ -365,7 +233,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-19", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-02", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.1 สัมภาษณ์ฝ่ายพัฒนาธุรกิจ (ฝพธ.)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-DEV-M2",
@@ -373,7 +241,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-20", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-03", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.2 สำนักตรวจสอบภายใน (สตส.)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-IA-M2",
@@ -381,7 +249,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-21", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-04", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.3 ฝ่ายเจ้าหน้าที่ DPO",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-DPO-M2",
@@ -389,7 +257,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-22", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-05", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.4 ฝ่ายบำรุงรักษา (ฝบร./กบร.)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-MTN-M2",
@@ -397,7 +265,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-23", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-06", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.5 ฝ่ายกฎหมาย (ฝกม.)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-LEGAL-M2",
@@ -405,7 +273,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-24", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-07", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.6 ฝ่ายการเงิน (ฝกง.)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน (รายได้+บัญชี)",
         "output": "Interview Notes", "evidence": "INT-FIN-M2",
@@ -413,7 +281,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-25", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-08", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.7 ฝ่ายทรัพยากรบุคคล (ฝทบ.)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-HR-M2",
@@ -421,7 +289,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-26", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-09", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.8 ฝ่ายยุทธศาสตร์ (ฝยป./กบค.)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-STR-M2",
@@ -429,7 +297,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-27", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-10", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.9 ฝ่ายดิจิทัล 1 (ฝดท.1)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน",
         "output": "Interview Notes", "evidence": "INT-DT1-M2",
@@ -437,33 +305,174 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M2-28", "ms": "MLS-02", "tor": "4.1.1",
+        "id": "DLV-M2-11", "ms": "MLS-02", "tor": "4.1.1",
         "name": "1.6.10 ฝ่ายดิจิทัล 2 (ฝดท.2)",
         "desc": "สัมภาษณ์แยกแต่ละหน่วยงาน (IT+Network+Security)",
         "output": "Interview Notes", "evidence": "INT-DT2-M2",
         "weight": 0.5, "start": "2026-10-19", "finish": "2026-10-31",
         "status": "Not Started",
     },
-    # ── NEW: Monthly Reports ──
+    # ── Monthly Report ต.ค. ──
     {
-        "id": "DLV-M2-29", "ms": "MLS-02", "tor": "-",
+        "id": "DLV-M2-12", "ms": "MLS-02", "tor": "-",
         "name": "📅 Monthly Report — ตุลาคม 69",
         "desc": "รายงานอัพเดตความคืบหน้ารายเดือนตุลาคม",
         "output": "Monthly Report", "evidence": "MR-OCT-69",
         "weight": 0.25, "start": "2026-11-02", "finish": "2026-11-02",
         "status": "Not Started",
     },
+    # ── 2.1 - 2.5 ──
     {
-        "id": "DLV-M2-30", "ms": "MLS-02", "tor": "-",
+        "id": "DLV-M2-13", "ms": "MLS-02", "tor": "4.1.2",
+        "name": "2.1 CCH Operational Workflow (5 กระบวนการ)",
+        "desc": "6.2.1 รับข้อมูล+ตรวจสอบ+ประมวลผล+กระทบยอด+ส่ง สถ.การเงิน",
+        "output": "Operational Workflow Draft", "evidence": "REPORT-M2-WF",
+        "weight": 2.5, "start": "2026-10-08", "finish": "2026-11-30",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-14", "ms": "MLS-02", "tor": "4.1.3",
+        "name": "2.2 Risk Assessment (เบื้องต้น)",
+        "desc": "6.2.2 Risk Assessment เบื้องต้น + Risk Matrix",
+        "output": "Risk Assessment Report", "evidence": "REPORT-M2-RISK",
+        "weight": 1.5, "start": "2026-10-08", "finish": "2026-11-21",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-15", "ms": "MLS-02", "tor": "4.1.4",
+        "name": "2.3 SOPs (เบื้องต้น) + Internal Control",
+        "desc": "6.2.3 Draft SOP Manual + Control Procedures — ร่าง SOPs, การควบคุมภายใน, ขั้นตอนตรวจสอบธุรกรรม, AML/CFT, Audit Checklists และ Three Lines of Defense",
+        "output": "Draft SOP Manual", "evidence": "REPORT-M2-SOP",
+        "weight": 2.0, "start": "2026-10-08", "finish": "2026-11-30",
+        "status": "In Progress",
+    },
+    {
+        "id": "DLV-M2-16", "ms": "MLS-02", "tor": "4.1.6",
+        "name": "2.4 Data Retention Framework (เบื้องต้น)",
+        "desc": "6.2.4 Data Retention Policy + Data Lifecycle",
+        "output": "Data Retention Draft", "evidence": "REPORT-M2-DR",
+        "weight": 1.0, "start": "2026-10-08", "finish": "2026-11-30",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-17", "ms": "MLS-02", "tor": "4.1.7",
+        "name": "2.5 Draft Compliance Roadmap + Reporting Framework",
+        "desc": "6.2.5 Regulatory Reporting Framework + Templates",
+        "output": "Compliance Roadmap", "evidence": "REPORT-M2-CR",
+        "weight": 1.5, "start": "2026-10-08", "finish": "2026-11-30",
+        "status": "Not Started",
+    },
+    # ── Monthly Report พ.ย. ──
+    {
+        "id": "DLV-M2-18", "ms": "MLS-02", "tor": "-",
         "name": "📅 Monthly Report — พฤศจิกายน 69",
         "desc": "รายงานอัพเดตความคืบหน้ารายเดือนพฤศจิกายน",
         "output": "Monthly Report", "evidence": "MR-NOV-69",
         "weight": 0.25, "start": "2026-11-30", "finish": "2026-11-30",
         "status": "Not Started",
     },
+    # ── 2.6 - 2.11 ──
+    {
+        "id": "DLV-M2-19", "ms": "MLS-02", "tor": "4.1.8",
+        "name": "2.6 Source of Fund / Channel Code Design ⭐",
+        "desc": "6.2.6 คู่มือทดสอบเติมเงิน + วิธีตรวจสอบ",
+        "output": "Source of Fund Design", "evidence": "REPORT-M2-SOF",
+        "weight": 1.5, "start": "2026-10-22", "finish": "2026-12-04",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-20", "ms": "MLS-02", "tor": "4.1.9",
+        "name": "2.7 Electronic Wallet Design (วงเงิน + โครงสร้าง) ⭐",
+        "desc": "6.2.7 การกำหนดวงเงิน + Fair Media + จำนวน Wallet",
+        "output": "E-Wallet Design Doc", "evidence": "REPORT-M2-EW",
+        "weight": 1.5, "start": "2026-10-22", "finish": "2026-12-04",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-21", "ms": "MLS-02", "tor": "4.1",
+        "name": "2.8 Workshops ร่วมกับหน่วยงานภายใน ⭐",
+        "desc": "6.2.8 Workshop ทดสอบและปรับปรุงกระบวนการ",
+        "output": "Workshop Report", "evidence": "REPORT-M2-WS",
+        "weight": 1.0, "start": "2026-11-08", "finish": "2026-12-04",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-22", "ms": "MLS-02", "tor": "4.2",
+        "name": "2.9 ร่าง Org Structure + Key Roles (เบื้องต้น)",
+        "desc": "6.2.9 Organisational Structure + Roles Draft + System Control Board",
+        "output": "Draft Org Structure", "evidence": "REPORT-M2-ORG",
+        "weight": 1.5, "start": "2026-09-01", "finish": "2026-11-30",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-23", "ms": "MLS-02", "tor": "4.3",
+        "name": "2.10 Business Model Overview + Revenue + Cost (เบื้องต้น)",
+        "desc": "6.2.10 BM Overview + Revenue Model + Cost Structure",
+        "output": "BM Overview Draft", "evidence": "REPORT-M2-BM",
+        "weight": 2.0, "start": "2026-09-01", "finish": "2026-11-30",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-24", "ms": "MLS-02", "tor": "4.4",
+        "name": "2.11 Daily Transaction + Monthly Performance Reporting",
+        "desc": "6.2.11 Daily TXN Monitoring + Monthly Performance",
+        "output": "Performance Report", "evidence": "REPORT-M2-PERF",
+        "weight": 1.0, "start": "2026-10-08", "finish": "2026-12-14",
+        "status": "Not Started",
+    },
+    # ── 2.12 - 2.13 (PF License) ──
+    {
+        "id": "DLV-M2-25", "ms": "MLS-02", "tor": "4.5.1 (PF)",
+        "name": "🔥 2.12 PF License Application Package ⭐",
+        "desc": "4.5.1 เอกสารครบชุด (Corp+Compliance+Tech+AML)",
+        "output": "PF Application Package", "evidence": "PKG-PF-REQ",
+        "weight": 3.0, "start": "2026-08-18", "finish": "2026-10-15",
+        "status": "In Progress",
+    },
+    {
+        "id": "DLV-M2-26", "ms": "MLS-02", "tor": "4.5.2 (PF)",
+        "name": "🔥 2.13 PF License Pre-review + Submit to BOT ⭐",
+        "desc": "ยื่นเอกสาร PF ต่อ ธปท.",
+        "output": "BOT Submission Receipt", "evidence": "BOT-SUB-PF",
+        "weight": 2.0, "start": "2026-09-30", "finish": "2026-10-31",
+        "status": "Not Started",
+    },
+    # ── Submission & Acceptance ──
+    {
+        "id": "DLV-M2-27", "ms": "MLS-02", "tor": "7.2",
+        "name": "▶ ส่ง(ร่าง) Progress I ให้คณะกรรมการ (10 วันก่อน)",
+        "desc": "จัดหนังสือส่ง + Slide",
+        "output": "Draft Submission", "evidence": "SUB-DRAFT-M2",
+        "weight": 0.5, "start": "2026-12-06", "finish": "2026-12-06",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-28", "ms": "MLS-02", "tor": "7.2",
+        "name": "▶ ปรับปรุง Progress I ตามข้อแก้ไข",
+        "desc": "แก้ไขตาม Comment",
+        "output": "Revised Report", "evidence": "SUB-REV-M2",
+        "weight": 0.5, "start": "2026-12-08", "finish": "2026-12-16",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-29", "ms": "MLS-02", "tor": "7.2",
+        "name": "🎯 Submit Progress I Report — 16 ธ.ค. 69 (Day 120)",
+        "desc": "2 ชุด + USB 2 อัน | Payment 30% ของราคาจ้าง",
+        "output": "Final Progress I Report", "evidence": "ACCEPT-M2-REQ",
+        "weight": 1.5, "start": "2026-12-16", "finish": "2026-12-16",
+        "status": "Not Started",
+    },
+    {
+        "id": "DLV-M2-30", "ms": "MLS-02", "tor": "7.2",
+        "name": "👥 ประชุมตรวจรับ Progress I Report",
+        "desc": "คณะกรรมการตรวจรับงาน",
+        "output": "Acceptance Minutes", "evidence": "ACC-MIN-M2",
+        "weight": 0.5, "start": "2026-12-17", "finish": "2026-12-25",
+        "status": "Not Started",
+    },
 
     # ═══════════════════════════════════════════════════════════
-    # M3 — INTERIM REPORT (14 ก.พ. 70) — Payment 30%
+    # M3 — INTERIM REPORT (14 ก.พ. 70) — Payment 30% (20 items)
     # ═══════════════════════════════════════════════════════════
     {
         "id": "DLV-M3-01", "ms": "MLS-03", "tor": "4.1.2",
@@ -497,8 +506,18 @@ DELIVERABLES_FULL = [
         "weight": 1.0, "start": "2026-12-01", "finish": "2027-01-31",
         "status": "Not Started",
     },
+    # ── Monthly Report ม.ค. ──
     {
-        "id": "DLV-M3-05", "ms": "MLS-03", "tor": "4.2",
+        "id": "DLV-M3-05", "ms": "MLS-03", "tor": "-",
+        "name": "📅 Monthly Report — มกราคม 70",
+        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนมกราคม",
+        "output": "Monthly Report", "evidence": "MR-JAN-70",
+        "weight": 0.25, "start": "2027-01-29", "finish": "2027-01-29",
+        "status": "Not Started",
+    },
+    # ── 3.5 - 3.14 ──
+    {
+        "id": "DLV-M3-06", "ms": "MLS-03", "tor": "4.2",
         "name": "3.5 Org Structure + Governance + Committee (ฉบับสมบูรณ์)",
         "desc": "6.3.5 Org Structure + Governance + System Control Board ครบชุด",
         "output": "Governance Design Package", "evidence": "REPORT-M3-GOV",
@@ -506,7 +525,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-06", "ms": "MLS-03", "tor": "4.3",
+        "id": "DLV-M3-07", "ms": "MLS-03", "tor": "4.3",
         "name": "3.6 Business Model + Operational Model + Risk (ฉบับสมบูรณ์)",
         "desc": "6.3.6 BM Overview + Operational Model + Risk Analysis สมบูรณ์",
         "output": "BM & Op Model", "evidence": "REPORT-M3-BM",
@@ -514,7 +533,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-07", "ms": "MLS-03", "tor": "4.4",
+        "id": "DLV-M3-08", "ms": "MLS-03", "tor": "4.4",
         "name": "3.7 System Health Monitoring",
         "desc": "6.3.7 ติดตามสถานะระบบ",
         "output": "System Health Report", "evidence": "REPORT-M3-SH",
@@ -522,7 +541,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-08", "ms": "MLS-03", "tor": "4.5",
+        "id": "DLV-M3-09", "ms": "MLS-03", "tor": "4.5",
         "name": "3.8 Compliance Gap Assessment + Licensing Roadmap",
         "desc": "6.3.8 Licensing Preparation Roadmap",
         "output": "Licensing Roadmap", "evidence": "REPORT-M3-LIC",
@@ -530,7 +549,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-09", "ms": "MLS-03", "tor": "4.3",
+        "id": "DLV-M3-10", "ms": "MLS-03", "tor": "4.3",
         "name": "3.9 Risk Management Strategy Report ⭐",
         "desc": "6.3.9 Risk Assessment + Risk Management Strategy",
         "output": "Risk Strategy Report", "evidence": "REPORT-M3-RSK",
@@ -538,7 +557,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-10", "ms": "MLS-03", "tor": "4.3",
+        "id": "DLV-M3-11", "ms": "MLS-03", "tor": "4.3",
         "name": "3.10 Cost-Revenue Framework Report ⭐",
         "desc": "6.3.10 โครงสร้างรายได้-ค่าใช้จ่าย",
         "output": "Cost-Revenue Framework", "evidence": "REPORT-M3-CR",
@@ -546,7 +565,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-11", "ms": "MLS-03", "tor": "4.3",
+        "id": "DLV-M3-12", "ms": "MLS-03", "tor": "4.3",
         "name": "3.11 Efficiency Improvement Report ⭐",
         "desc": "6.3.11 Process Consolidation + Automation + Cost Reduction",
         "output": "Efficiency Report", "evidence": "REPORT-M3-EFF",
@@ -554,7 +573,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-12", "ms": "MLS-03", "tor": "4.3.4",
+        "id": "DLV-M3-13", "ms": "MLS-03", "tor": "4.3.4",
         "name": "3.12 Non-Toll Contract Templates + Fee Structure ⭐",
         "desc": "6.3.12 สัญญาพันธมิตร + MDR/Fee Structure",
         "output": "Contract Templates", "evidence": "REPORT-M3-CT",
@@ -562,7 +581,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-13", "ms": "MLS-03", "tor": "4.4",
+        "id": "DLV-M3-14", "ms": "MLS-03", "tor": "4.4",
         "name": "3.13 Reporting Templates ⭐",
         "desc": "6.3.13 แม่แบบรายงานสำหรับ ธปท. + ภายในองค์กร",
         "output": "Reporting Templates", "evidence": "REPORT-M3-TPL",
@@ -570,7 +589,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-14", "ms": "MLS-03", "tor": "4.4",
+        "id": "DLV-M3-15", "ms": "MLS-03", "tor": "4.4",
         "name": "3.14 Initial Year Monitoring (Advisory Support)",
         "desc": "6.3.14 Ongoing Advisory (12 เดือน)",
         "output": "Advisory Log", "evidence": "REPORT-M3-ADV",
@@ -578,7 +597,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-15", "ms": "MLS-03", "tor": "4.5.1 (EM)",
+        "id": "DLV-M3-16", "ms": "MLS-03", "tor": "4.5.1 (EM)",
         "name": "🔥 3.17 E-Money License Application (เริ่ม)",
         "desc": "4.5.1 เตรียมเอกสาร E-Money License",
         "output": "EM Application Draft", "evidence": "REPORT-M3-EM",
@@ -586,7 +605,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-16", "ms": "MLS-03", "tor": "7.3",
+        "id": "DLV-M3-17", "ms": "MLS-03", "tor": "7.3",
         "name": "▶ ส่ง(ร่าง) Interim ให้คณะกรรมการ (10 วันก่อน)",
         "desc": "จัดหนังสือส่ง + Slide",
         "output": "Draft Submission", "evidence": "SUB-DRAFT-M3",
@@ -594,7 +613,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-17", "ms": "MLS-03", "tor": "7.3",
+        "id": "DLV-M3-18", "ms": "MLS-03", "tor": "7.3",
         "name": "▶ ปรับปรุง Interim ตามข้อแก้ไข",
         "desc": "แก้ไขตาม Comment",
         "output": "Revised Report", "evidence": "SUB-REV-M3",
@@ -602,7 +621,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-18", "ms": "MLS-03", "tor": "7.3",
+        "id": "DLV-M3-19", "ms": "MLS-03", "tor": "7.3",
         "name": "🎯 Submit Interim Report — 14 ก.พ. 70 (Day 180)",
         "desc": "2 ชุด + USB 2 อัน | Payment 30% ของราคาจ้าง",
         "output": "Final Interim Report", "evidence": "ACCEPT-M3-REQ",
@@ -610,24 +629,16 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M3-19", "ms": "MLS-03", "tor": "7.3",
+        "id": "DLV-M3-20", "ms": "MLS-03", "tor": "7.3",
         "name": "👥 ประชุมตรวจรับ Interim Report",
         "desc": "คณะกรรมการตรวจรับงาน",
         "output": "Acceptance Minutes", "evidence": "ACC-MIN-M3",
         "weight": 0.5, "start": "2027-02-15", "finish": "2027-02-19",
         "status": "Not Started",
     },
-    {
-        "id": "DLV-M3-20", "ms": "MLS-03", "tor": "-",
-        "name": "📅 Monthly Report — มกราคม 70",
-        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนมกราคม",
-        "output": "Monthly Report", "evidence": "MR-JAN-70",
-        "weight": 0.25, "start": "2027-01-29", "finish": "2027-01-29",
-        "status": "Not Started",
-    },
 
     # ═══════════════════════════════════════════════════════════
-    # M4 — PROGRESS II REPORT (14 มิ.ย. 70) — Payment 20%
+    # M4 — PROGRESS II REPORT (14 มิ.ย. 70) — Payment 20% (19 items)
     # ═══════════════════════════════════════════════════════════
     {
         "id": "DLV-M4-01", "ms": "MLS-04", "tor": "4.4.1",
@@ -653,8 +664,18 @@ DELIVERABLES_FULL = [
         "weight": 1.5, "start": "2027-02-15", "finish": "2027-05-31",
         "status": "Not Started",
     },
+    # ── Monthly Report มี.ค. ──
     {
-        "id": "DLV-M4-04", "ms": "MLS-04", "tor": "4.2",
+        "id": "DLV-M4-04", "ms": "MLS-04", "tor": "-",
+        "name": "📅 Monthly Report — มีนาคม 70",
+        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนมีนาคม",
+        "output": "Monthly Report", "evidence": "MR-MAR-70",
+        "weight": 0.25, "start": "2027-03-31", "finish": "2027-03-31",
+        "status": "Not Started",
+    },
+    # ── 4.4 - 4.7 ──
+    {
+        "id": "DLV-M4-05", "ms": "MLS-04", "tor": "4.2",
         "name": "4.4 Org Implementation Monitoring",
         "desc": "6.4.4 ผลการติดตามการนำโครงสร้างองค์กรไปใช้",
         "output": "Org Monitoring Report", "evidence": "REPORT-M4-ORG",
@@ -662,7 +683,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-05", "ms": "MLS-04", "tor": "4.3",
+        "id": "DLV-M4-06", "ms": "MLS-04", "tor": "4.3",
         "name": "4.5 Business Performance Monitoring + Improvement",
         "desc": "6.4.5 ประสิทธิภาพการดำเนินงาน + ข้อเสนอแนะ",
         "output": "Business Improvement", "evidence": "REPORT-M4-BIZ",
@@ -670,7 +691,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-06", "ms": "MLS-04", "tor": "4.4",
+        "id": "DLV-M4-07", "ms": "MLS-04", "tor": "4.4",
         "name": "4.6 Issue Escalation + Continuous Improvement",
         "desc": "6.4.6 กระบวนการยกระดับปัญหา + ปรับปรุงต่อเนื่อง",
         "output": "Escalation Report", "evidence": "REPORT-M4-ESC",
@@ -678,15 +699,25 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-07", "ms": "MLS-04", "tor": "4.5",
+        "id": "DLV-M4-08", "ms": "MLS-04", "tor": "4.5",
         "name": "4.7 License Documentation + Coordination",
         "desc": "6.4.7 จัดเตรียมเอกสาร + ประสานหน่วยกำกับดูแล",
         "output": "License Docs", "evidence": "REPORT-M4-LIC",
         "weight": 2.0, "start": "2027-02-15", "finish": "2027-05-14",
         "status": "Not Started",
     },
+    # ── Monthly Report เม.ย. ──
     {
-        "id": "DLV-M4-08", "ms": "MLS-04", "tor": "4.5.2",
+        "id": "DLV-M4-09", "ms": "MLS-04", "tor": "-",
+        "name": "📅 Monthly Report — เมษายน 70",
+        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนเมษายน",
+        "output": "Monthly Report", "evidence": "MR-APR-70",
+        "weight": 0.25, "start": "2027-04-30", "finish": "2027-04-30",
+        "status": "Not Started",
+    },
+    # ── 4.8 - 4.10 ──
+    {
+        "id": "DLV-M4-10", "ms": "MLS-04", "tor": "4.5.2",
         "name": "4.8 AMLO Assessment + Approval Support ⭐",
         "desc": "4.5.2 ขอความเห็นชอบจากสำนักงาน ปปง. — AML Policy + AMLO Monitoring Procedure (SOP) + KYC/CDD Guidelines",
         "output": "AMLO Package", "evidence": "REPORT-M4-AMLO",
@@ -694,7 +725,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-09", "ms": "MLS-04", "tor": "4.6",
+        "id": "DLV-M4-11", "ms": "MLS-04", "tor": "4.6",
         "name": "4.9 Training Program + Materials ⭐",
         "desc": "4.6 หลักสูตร + เอกสารประกอบ (Compliance/Operational/Governance)",
         "output": "Training Materials", "evidence": "TRN-MAT-M4",
@@ -702,15 +733,25 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-10", "ms": "MLS-04", "tor": "4.6",
+        "id": "DLV-M4-12", "ms": "MLS-04", "tor": "4.6",
         "name": "4.10 การจัดฝึกอบรม (20+ คน, 3+ ชม.) ⭐",
         "desc": "4.6 Workshop สำหรับเจ้าหน้าที่ กทพ.",
         "output": "Training Report", "evidence": "TRN-RPT-M4",
         "weight": 1.5, "start": "2027-05-15", "finish": "2027-06-07",
         "status": "Not Started",
     },
+    # ── Monthly Report พ.ค. ──
     {
-        "id": "DLV-M4-11", "ms": "MLS-04", "tor": "4.5.1 (EM)",
+        "id": "DLV-M4-13", "ms": "MLS-04", "tor": "-",
+        "name": "📅 Monthly Report — พฤษภาคม 70",
+        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนพฤษภาคม",
+        "output": "Monthly Report", "evidence": "MR-MAY-70",
+        "weight": 0.25, "start": "2027-05-31", "finish": "2027-05-31",
+        "status": "Not Started",
+    },
+    # ── 4.11 - 4.12 (EM License) ──
+    {
+        "id": "DLV-M4-14", "ms": "MLS-04", "tor": "4.5.1 (EM)",
         "name": "🔥 4.11 E-Money License — Complete Application ⭐",
         "desc": "4.5.1 เอกสาร EM ครบชุด",
         "output": "EM Complete Package", "evidence": "PKG-EM-REQ",
@@ -718,15 +759,16 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-12", "ms": "MLS-04", "tor": "4.5.2 (EM)",
+        "id": "DLV-M4-15", "ms": "MLS-04", "tor": "4.5.2 (EM)",
         "name": "🔥 4.12 E-Money License — Submit to BOT ⭐",
         "desc": "ยื่นเอกสาร E-Money ต่อ ธปท.",
         "output": "BOT Submission Receipt", "evidence": "BOT-SUB-EM",
         "weight": 1.5, "start": "2027-04-22", "finish": "2027-04-30",
         "status": "Not Started",
     },
+    # ── Submission & Acceptance ──
     {
-        "id": "DLV-M4-13", "ms": "MLS-04", "tor": "7.4",
+        "id": "DLV-M4-16", "ms": "MLS-04", "tor": "7.4",
         "name": "▶ ส่ง(ร่าง) Progress II ให้คณะกรรมการ (10 วันก่อน)",
         "desc": "จัดหนังสือส่ง + Slide",
         "output": "Draft Submission", "evidence": "SUB-DRAFT-M4",
@@ -734,7 +776,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-14", "ms": "MLS-04", "tor": "7.4",
+        "id": "DLV-M4-17", "ms": "MLS-04", "tor": "7.4",
         "name": "▶ ปรับปรุง Progress II ตามข้อแก้ไข",
         "desc": "แก้ไขตาม Comment",
         "output": "Revised Report", "evidence": "SUB-REV-M4",
@@ -742,7 +784,7 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-15", "ms": "MLS-04", "tor": "7.4",
+        "id": "DLV-M4-18", "ms": "MLS-04", "tor": "7.4",
         "name": "🎯 Submit Progress II Report — 14 มิ.ย. 70 (Day 300)",
         "desc": "2 ชุด + USB 2 อัน | Payment 20% ของราคาจ้าง",
         "output": "Final Progress II Report", "evidence": "ACCEPT-M4-REQ",
@@ -750,41 +792,16 @@ DELIVERABLES_FULL = [
         "status": "Not Started",
     },
     {
-        "id": "DLV-M4-16", "ms": "MLS-04", "tor": "7.4",
+        "id": "DLV-M4-19", "ms": "MLS-04", "tor": "7.4",
         "name": "👥 ประชุมตรวจรับ Progress II Report",
         "desc": "คณะกรรมการตรวจรับงาน",
         "output": "Acceptance Minutes", "evidence": "ACC-MIN-M4",
         "weight": 0.5, "start": "2027-06-15", "finish": "2027-06-18",
         "status": "Not Started",
     },
-    # ── NEW: Monthly Reports M4 ──
-    {
-        "id": "DLV-M4-17", "ms": "MLS-04", "tor": "-",
-        "name": "📅 Monthly Report — มีนาคม 70",
-        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนมีนาคม",
-        "output": "Monthly Report", "evidence": "MR-MAR-70",
-        "weight": 0.25, "start": "2027-03-31", "finish": "2027-03-31",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M4-18", "ms": "MLS-04", "tor": "-",
-        "name": "📅 Monthly Report — เมษายน 70",
-        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนเมษายน",
-        "output": "Monthly Report", "evidence": "MR-APR-70",
-        "weight": 0.25, "start": "2027-04-30", "finish": "2027-04-30",
-        "status": "Not Started",
-    },
-    {
-        "id": "DLV-M4-19", "ms": "MLS-04", "tor": "-",
-        "name": "📅 Monthly Report — พฤษภาคม 70",
-        "desc": "รายงานอัพเดตความคืบหน้ารายเดือนพฤษภาคม",
-        "output": "Monthly Report", "evidence": "MR-MAY-70",
-        "weight": 0.25, "start": "2027-05-31", "finish": "2027-05-31",
-        "status": "Not Started",
-    },
 
     # ═══════════════════════════════════════════════════════════
-    # M5 — FINAL REPORT (13 ส.ค. 70) — Payment 10%
+    # M5 — FINAL REPORT (13 ส.ค. 70) — Payment 10% (12 items — ไม่เปลี่ยน)
     # ═══════════════════════════════════════════════════════════
     {
         "id": "DLV-M5-01", "ms": "MLS-05", "tor": "4.4",
@@ -1080,7 +1097,7 @@ def ensure_seed_data():
 
     ★ สำคัญ:
     - Normalize weights ให้ผลรวม = 100.00%
-    - ใช้ field "status" จาก DELIVERABLES_FULL (v3) ถ้ามี
+    - ใช้ field "status" จาก DELIVERABLES_FULL (v4) ถ้ามี
     """
     for d in ["master", "history", "audit", "backup"]:
         (DATA / d).mkdir(parents=True, exist_ok=True)
@@ -1134,7 +1151,7 @@ def ensure_seed_data():
             })
         pd.DataFrame(rows).to_csv(ms, index=False, encoding="utf-8-sig")
 
-    # ── DELIVERABLE MASTER (Normalized + Status from v3) ──
+    # ── DELIVERABLE MASTER (Normalized + Status + sequence) ──
     dl = DATA / "master" / "deliverable_master.csv"
     if not dl.exists():
         normalized = normalize_deliverable_weights(
@@ -1144,11 +1161,19 @@ def ensure_seed_data():
         assert abs(total_w - 100.0) < 0.01, \
             f"Normalization ผิดพลาด: ผลรวม = {total_w}%"
 
+        # ★ Sequence: เรียงตาม # (01, 02, 03, ...) ภายใน milestone
+        from collections import defaultdict
+        seq_counter = defaultdict(int)
+
         rows = []
         for d in normalized:
+            mid = d["ms"]
+            seq_counter[mid] += 1
+            seq = seq_counter[mid]
+
             rows.append({
                 "deliverable_id":     d["id"],
-                "milestone_id":       d["ms"],
+                "milestone_id":       mid,
                 "tor_clause":         d["tor"],
                 "deliverable_name":   d["name"],
                 "description":        d["desc"],
@@ -1159,12 +1184,13 @@ def ensure_seed_data():
                 "planned_finish":     d["finish"],
                 "actual_start":       d["start"] if d.get("status") == "Accepted" else "",
                 "actual_finish":      d["finish"] if d.get("status") == "Accepted" else "",
-                "status":             d.get("status", "Not Started"),   # ★ v3
+                "status":             d.get("status", "Not Started"),
                 "compliance_status":  "Compliant" if d.get("status") == "Accepted" else "Not Checked",
                 "reviewer":           "admin" if d.get("status") == "Accepted" else "",
                 "review_date":        "2026-09-01" if d.get("status") == "Accepted" else "",
                 "review_comment":     "",
                 "updated_at":         "2026-10-14 09:00:00",
+                "sequence":           seq,   # ★ เรียงตาม # ใน Excel
             })
         pd.DataFrame(rows).to_csv(dl, index=False, encoding="utf-8-sig")
 

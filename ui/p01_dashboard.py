@@ -5,17 +5,15 @@
 - ★ Milestone markers บน S-Curve (แสดงสถานะตามสี)
 - ★ KPI 4 ตัว: แผน ณ วันนี้ / จริง ณ วันนี้ / ส่วนต่าง / แผนรวม
 - ★ Section 5: ตาราง Deliverable เรียงตามลำดับงาน (M1 → M5)
-  + คอลัมน์ หน่วยงาน / ช่วงเวลา / TOR
 
 - 🐛 Fixed v6:
-  - ★ เรียงลำดับ Deliverable ตาม `sequence` field (ตรงกับ Excel Timeline)
-  - เพิ่ม helper `_get_sequence()` + `_sort_by_sequence()`
-  - Bar Chart ใช้ sequence ใน sort_key
-  - อัปเดต RESPONSIBLE_UNITS รองรับ DLV-M1-19, DLV-M1-20, DLV-M2-18..30
-  - Fallback: ถ้า DB ไม่มี column `sequence` → parse จาก ID อัตโนมัติ
+  - ★ RESPONSIBLE_UNITS อัปเดตตาม ID ใหม่ (เรียงตาม Excel #)
+  - ★ DLV-M1-01..14, DLV-M2-01..30, DLV-M3-01..20, DLV-M4-01..19
+  - ★ เพิ่ม UNIT_REFERENCE "10 หน่วยงานเกี่ยวข้อง"
+  - ★ ใช้ sequence จาก DB ในการเรียง (fallback: parse จาก ID)
 
 - 🐛 Fixed v5:
-  - ★ Status = "Accepted" / "Closed" → actual = 100% (override progress_history)
+  - ★ Status = "Accepted" / "Closed" → actual = 100%
   - S-Curve, Milestone table, Deliverable table, Bar chart ทั้งหมดใช้ logic นี้
   - เพิ่ม helper `_effective_actual()` ใช้ร่วมกันทั้งหน้า
 - 🐛 Fixed v4: WEEKLY_PLAN_PCT normalize ให้ผลรวม = 100.00% พอดี
@@ -87,7 +85,7 @@ def _effective_actual(
 def _get_sequence(row_or_dict) -> int:
     """
     ดึงค่า sequence จาก row
-    ถ้าไม่มี → parse จาก deliverable_id (DLV-M1-19 → 19)
+    ถ้าไม่มี → parse จาก deliverable_id (DLV-M1-05 → 5)
     """
     try:
         val = row_or_dict.get("sequence", None)
@@ -133,120 +131,115 @@ def _sort_by_sequence(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
-# ★ RESPONSIBLE UNITS (จาก Timeline TOR)
+# ★ RESPONSIBLE UNITS (จาก Timeline — ID ใหม่ตาม Excel)
 # ============================================================
 RESPONSIBLE_UNITS = {
-    # ═══ M1 — Inception Report ═══
-    "DLV-M1-01": "คณะกรรมการ",
-    "DLV-M1-02": "คณะกรรมการ",
-    "DLV-M1-03": "คณะกรรมการ",
-    "DLV-M1-04": "ฝทบ.",
-    "DLV-M1-05": "10 หน่วยงานเกี่ยวข้อง",       # ★ แก้ไข
-    "DLV-M1-06": "ฝดท.1",                       # (legacy)
-    "DLV-M1-07": "ฝกง.",                        # (legacy)
-    "DLV-M1-08": "ฝดท.2",                       # (legacy)
-    "DLV-M1-09": "กบธ.",                        # (legacy)
-    "DLV-M1-10": "ฝพธ., ฝกม.",                  # (legacy)
-    "DLV-M1-11": "ฝดท.1",
-    "DLV-M1-12": "ฝดท.1",
-    "DLV-M1-13": "ฝพธ.",
-    "DLV-M1-14": "ฝยป.",
-    "DLV-M1-15": "คณะกรรมการ",
-    "DLV-M1-16": "คณะกรรมการ",
-    "DLV-M1-17": "คณะกรรมการ",
-    "DLV-M1-18": "คณะกรรมการ",
-    "DLV-M1-19": "คณะกรรมการ",                  # ★ ใหม่
-    "DLV-M1-20": "10 หน่วยงานเกี่ยวข้อง",       # ★ ใหม่
+    # ═══ M1 — Inception Report (14 items) ═══
+    "DLV-M1-01": "คณะกรรมการ",              # Contract Sign Off
+    "DLV-M1-02": "คณะกรรมการ",              # Kick-off Meeting
+    "DLV-M1-03": "คณะกรรมการ",              # Project Charter
+    "DLV-M1-04": "คณะกรรมการ",              # Project Timeline
+    "DLV-M1-05": "ฝทบ.",                    # Org Chart
+    "DLV-M1-06": "10 หน่วยงานเกี่ยวข้อง",    # Interview Overview
+    "DLV-M1-07": "ฝดท.1",                   # 1.11 Compliance Advisory
+    "DLV-M1-08": "ฝดท.1",                   # 1.12 Governance Review
+    "DLV-M1-09": "ฝพธ.",                    # 1.13 Business Assumptions
+    "DLV-M1-10": "ฝยป.",                    # 1.14 Monitoring Framework
+    "DLV-M1-11": "คณะกรรมการ",              # ส่ง(ร่าง) Inception
+    "DLV-M1-12": "คณะกรรมการ",              # ปรับปรุง Inception
+    "DLV-M1-13": "คณะกรรมการ",              # Submit Inception Report
+    "DLV-M1-14": "คณะกรรมการ",              # ประชุมตรวจรับ Inception
 
-    # ═══ M2 — Progress Report I ═══
-    "DLV-M2-01": "ฝดท.1",
-    "DLV-M2-02": "ฝยป.",
-    "DLV-M2-03": "ฝดท.1, ฝยป.",
-    "DLV-M2-04": "ฝดท.1",
-    "DLV-M2-05": "กกด.",
-    "DLV-M2-06": "ฝดท.1",
-    "DLV-M2-07": "ฝยป.",
-    "DLV-M2-08": "คณะกรรมการ",
-    "DLV-M2-09": "ฝทบ.",
-    "DLV-M2-10": "ฝกง., ฝพธ.",
-    "DLV-M2-11": "ฝกง.",
-    "DLV-M2-12": "ฝดท.1, ฝกม.",
-    "DLV-M2-13": "ฝดท.1",
-    "DLV-M2-14": "คณะกรรมการ",
-    "DLV-M2-15": "คณะกรรมการ",
-    "DLV-M2-16": "คณะกรรมการ",
-    "DLV-M2-17": "คณะกรรมการ",
-    # ★ 1.6.x Interview 10 Departments (ใหม่)
-    "DLV-M2-18": "-",                           # ★ ใหม่
-    "DLV-M2-19": "ฝพธ.",                        # ★ ใหม่
-    "DLV-M2-20": "สตส.",                        # ★ ใหม่
-    "DLV-M2-21": "DPO",                         # ★ ใหม่
-    "DLV-M2-22": "ฝบร./กบร.",                   # ★ ใหม่
-    "DLV-M2-23": "ฝกม.",                        # ★ ใหม่
-    "DLV-M2-24": "ฝกง.",                        # ★ ใหม่
-    "DLV-M2-25": "ฝทบ.",                        # ★ ใหม่
-    "DLV-M2-26": "ฝยป./กบค.",                   # ★ ใหม่
-    "DLV-M2-27": "ฝดท.1",                       # ★ ใหม่
-    "DLV-M2-28": "ฝดท.2",                       # ★ ใหม่
-    "DLV-M2-29": "คณะกรรมการ",                  # ★ Monthly Report ต.ค.
-    "DLV-M2-30": "คณะกรรมการ",                  # ★ Monthly Report พ.ย.
+    # ═══ M2 — Progress I Report (30 items) ═══
+    # 1.6 Interview 10 Departments
+    "DLV-M2-01": "-",                       # 1.6 Overall
+    "DLV-M2-02": "ฝพธ.",                    # 1.6.1
+    "DLV-M2-03": "สตส.",                    # 1.6.2
+    "DLV-M2-04": "DPO",                     # 1.6.3
+    "DLV-M2-05": "ฝบร./กบร.",               # 1.6.4
+    "DLV-M2-06": "ฝกม.",                    # 1.6.5
+    "DLV-M2-07": "ฝกง.",                    # 1.6.6
+    "DLV-M2-08": "ฝทบ.",                    # 1.6.7
+    "DLV-M2-09": "ฝยป./กบค.",               # 1.6.8
+    "DLV-M2-10": "ฝดท.1",                   # 1.6.9
+    "DLV-M2-11": "ฝดท.2",                   # 1.6.10
+    # Monthly Reports + 2.x
+    "DLV-M2-12": "คณะกรรมการ",              # Monthly Report ต.ค.
+    "DLV-M2-13": "ฝดท.1",                   # 2.1 CCH Workflow
+    "DLV-M2-14": "ฝยป.",                    # 2.2 Risk Assessment
+    "DLV-M2-15": "ฝดท.1, ฝยป.",             # 2.3 SOPs
+    "DLV-M2-16": "ฝดท.1",                   # 2.4 Data Retention
+    "DLV-M2-17": "กกด.",                    # 2.5 Compliance Roadmap
+    "DLV-M2-18": "คณะกรรมการ",              # Monthly Report พ.ย.
+    "DLV-M2-19": "ฝดท.1",                   # 2.6 Source of Fund
+    "DLV-M2-20": "ฝยป.",                    # 2.7 E-Wallet Design
+    "DLV-M2-21": "คณะกรรมการ",              # 2.8 Workshops
+    "DLV-M2-22": "ฝทบ.",                    # 2.9 Org Structure Draft
+    "DLV-M2-23": "ฝกง., ฝพธ.",              # 2.10 Business Model
+    "DLV-M2-24": "ฝกง.",                    # 2.11 Daily Transaction
+    "DLV-M2-25": "ฝดท.1, ฝกม.",             # 2.12 PF License Package
+    "DLV-M2-26": "ฝดท.1",                   # 2.13 PF Submit BOT
+    "DLV-M2-27": "คณะกรรมการ",              # ส่ง(ร่าง) Progress I
+    "DLV-M2-28": "คณะกรรมการ",              # ปรับปรุง Progress I
+    "DLV-M2-29": "คณะกรรมการ",              # Submit Progress I
+    "DLV-M2-30": "คณะกรรมการ",              # ประชุมตรวจรับ Progress I
 
-    # ═══ M3 — Interim Report ═══
-    "DLV-M3-01": "ฝดท.1",
-    "DLV-M3-02": "สตส.",
-    "DLV-M3-03": "ฝดท.1",
-    "DLV-M3-04": "ฝดท.1",
-    "DLV-M3-05": "ฝดท.1, ฝทบ.",
-    "DLV-M3-06": "ฝพธ.",
-    "DLV-M3-07": "ฝดท.1, ฝดท.2",
-    "DLV-M3-08": "ฝดท.1",
-    "DLV-M3-09": "ฝยป.",
-    "DLV-M3-10": "ฝกง.",
-    "DLV-M3-11": "ฝดท.1",
-    "DLV-M3-12": "ฝกม.",
-    "DLV-M3-13": "ฝกง., ฝดท.1",
-    "DLV-M3-14": "คณะกรรมการ",
-    "DLV-M3-15": "ฝกม., ฝดท.1",
-    "DLV-M3-16": "คณะกรรมการ",
-    "DLV-M3-17": "คณะกรรมการ",
-    "DLV-M3-18": "คณะกรรมการ",
-    "DLV-M3-19": "คณะกรรมการ",
-    "DLV-M3-20": "คณะกรรมการ",                  # ★ Monthly Report ม.ค.
+    # ═══ M3 — Interim Report (20 items) ═══
+    "DLV-M3-01": "ฝดท.1",                   # 3.1 Workflow สมบูรณ์
+    "DLV-M3-02": "สตส.",                    # 3.2 Audit Trail
+    "DLV-M3-03": "ฝดท.1",                   # 3.3 Data Retention
+    "DLV-M3-04": "ฝดท.1",                   # 3.4 Regulatory Reporting
+    "DLV-M3-05": "คณะกรรมการ",              # Monthly Report ม.ค.
+    "DLV-M3-06": "ฝดท.1, ฝทบ.",             # 3.5 Org+Gov+Committee
+    "DLV-M3-07": "ฝพธ.",                    # 3.6 BM+Op+Risk
+    "DLV-M3-08": "ฝดท.1, ฝดท.2",            # 3.7 System Health
+    "DLV-M3-09": "ฝดท.1",                   # 3.8 Compliance Gap
+    "DLV-M3-10": "ฝยป.",                    # 3.9 Risk Strategy
+    "DLV-M3-11": "ฝกง.",                    # 3.10 Cost-Revenue
+    "DLV-M3-12": "ฝดท.1",                   # 3.11 Efficiency
+    "DLV-M3-13": "ฝกม.",                    # 3.12 Non-Toll Contract
+    "DLV-M3-14": "ฝกง., ฝดท.1",             # 3.13 Reporting Templates
+    "DLV-M3-15": "คณะกรรมการ",              # 3.14 Initial Year Monitoring
+    "DLV-M3-16": "ฝกม., ฝดท.1",             # 3.17 E-Money (เริ่ม)
+    "DLV-M3-17": "คณะกรรมการ",              # ส่ง(ร่าง) Interim
+    "DLV-M3-18": "คณะกรรมการ",              # ปรับปรุง Interim
+    "DLV-M3-19": "คณะกรรมการ",              # Submit Interim
+    "DLV-M3-20": "คณะกรรมการ",              # ประชุมตรวจรับ Interim
 
-    # ═══ M4 — Progress Report II ═══
-    "DLV-M4-01": "คณะกรรมการ",
-    "DLV-M4-02": "ฝดท.1",
-    "DLV-M4-03": "ฝดท.1",
-    "DLV-M4-04": "ฝทบ.",
-    "DLV-M4-05": "ฝพธ.",
-    "DLV-M4-06": "ฝดท.1, ฝดท.2",
-    "DLV-M4-07": "ฝกม., ฝดท.1",
-    "DLV-M4-08": "ฝกม., ฝดท.1",
-    "DLV-M4-09": "คณะกรรมการ",
-    "DLV-M4-10": "คณะกรรมการ",
-    "DLV-M4-11": "ฝดท.1",
-    "DLV-M4-12": "ฝดท.1",
-    "DLV-M4-13": "คณะกรรมการ",
-    "DLV-M4-14": "คณะกรรมการ",
-    "DLV-M4-15": "คณะกรรมการ",
-    "DLV-M4-16": "คณะกรรมการ",
-    "DLV-M4-17": "คณะกรรมการ",                  # ★ Monthly Report มี.ค.
-    "DLV-M4-18": "คณะกรรมการ",                  # ★ Monthly Report เม.ย.
-    "DLV-M4-19": "คณะกรรมการ",                  # ★ Monthly Report พ.ค.
+    # ═══ M4 — Progress II Report (19 items) ═══
+    "DLV-M4-01": "คณะกรรมการ",              # 4.1 Advisory Support
+    "DLV-M4-02": "ฝดท.1",                   # 4.2 Performance Monitoring
+    "DLV-M4-03": "ฝดท.1",                   # 4.3 Compliance Advisory
+    "DLV-M4-04": "คณะกรรมการ",              # Monthly Report มี.ค.
+    "DLV-M4-05": "ฝทบ.",                    # 4.4 Org Implementation
+    "DLV-M4-06": "ฝพธ.",                    # 4.5 Business Performance
+    "DLV-M4-07": "ฝดท.1, ฝดท.2",            # 4.6 Issue Escalation
+    "DLV-M4-08": "ฝกม., ฝดท.1",             # 4.7 License Documentation
+    "DLV-M4-09": "คณะกรรมการ",              # Monthly Report เม.ย.
+    "DLV-M4-10": "ฝกม., ฝดท.1",             # 4.8 AMLO Assessment
+    "DLV-M4-11": "คณะกรรมการ",              # 4.9 Training Program
+    "DLV-M4-12": "คณะกรรมการ",              # 4.10 จัดฝึกอบรม
+    "DLV-M4-13": "คณะกรรมการ",              # Monthly Report พ.ค.
+    "DLV-M4-14": "ฝดท.1",                   # 4.11 EM Complete
+    "DLV-M4-15": "ฝดท.1",                   # 4.12 EM Submit
+    "DLV-M4-16": "คณะกรรมการ",              # ส่ง(ร่าง) Progress II
+    "DLV-M4-17": "คณะกรรมการ",              # ปรับปรุง Progress II
+    "DLV-M4-18": "คณะกรรมการ",              # Submit Progress II
+    "DLV-M4-19": "คณะกรรมการ",              # ประชุมตรวจรับ Progress II
 
-    # ═══ M5 — Final Report ═══
-    "DLV-M5-01": "คณะกรรมการ",
-    "DLV-M5-02": "ฝดท.1",
-    "DLV-M5-03": "ฝทบ.",
-    "DLV-M5-04": "ฝกง.",
-    "DLV-M5-05": "ฝดท.1, ฝดท.2",
-    "DLV-M5-06": "ฝดท.1, ฝกม.",
-    "DLV-M5-07": "คณะกรรมการ",
-    "DLV-M5-08": "คณะกรรมการ",
-    "DLV-M5-09": "คณะกรรมการ",
-    "DLV-M5-10": "คณะกรรมการ",
-    "DLV-M5-11": "คณะกรรมการ",
-    "DLV-M5-12": "คณะกรรมการ",
+    # ═══ M5 — Final Report (12 items — ไม่เปลี่ยน) ═══
+    "DLV-M5-01": "คณะกรรมการ",              # 5.1 Advisory Support
+    "DLV-M5-02": "ฝดท.1",                   # 5.2 WP 4.1 Package
+    "DLV-M5-03": "ฝทบ.",                    # 5.3 WP 4.2 Package
+    "DLV-M5-04": "ฝกง.",                    # 5.4 WP 4.3 Package
+    "DLV-M5-05": "ฝดท.1, ฝดท.2",            # 5.5 WP 4.4 Package
+    "DLV-M5-06": "ฝดท.1, ฝกม.",             # 5.6 WP 4.5 Package
+    "DLV-M5-07": "คณะกรรมการ",              # 5.7 Training Report
+    "DLV-M5-08": "คณะกรรมการ",              # 5.9 Closure Report
+    "DLV-M5-09": "คณะกรรมการ",              # ส่ง(ร่าง) Final
+    "DLV-M5-10": "คณะกรรมการ",              # ปรับปรุง Final
+    "DLV-M5-11": "คณะกรรมการ",              # Submit Final Report
+    "DLV-M5-12": "คณะกรรมการ",              # ประชุมตรวจรับ Final
 }
 
 # คำอธิบายตัวย่อหน่วยงาน
