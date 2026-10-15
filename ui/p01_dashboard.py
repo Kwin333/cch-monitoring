@@ -6,8 +6,12 @@
 - ★ KPI 4 ตัว: แผน ณ วันนี้ / จริง ณ วันนี้ / ส่วนต่าง / แผนรวม
 - ★ Section 5: ตาราง Deliverable เรียงตามลำดับงาน (M1 → M5)
   + คอลัมน์ หน่วยงาน / ช่วงเวลา / TOR
+
+- 🐛 Fixed v5:
+  - ★ Status = "Accepted" / "Closed" → actual = 100% (override progress_history)
+  - S-Curve, Milestone table, Deliverable table, Bar chart ทั้งหมดใช้ logic นี้
+  - เพิ่ม helper `_effective_actual()` ใช้ร่วมกันทั้งหน้า
 - 🐛 Fixed v4: WEEKLY_PLAN_PCT normalize ให้ผลรวม = 100.00% พอดี
-  (เดิม hardcode รวมได้ 100.50% ทำให้ "แผนรวม" แสดง 100.5%)
 - 🐛 Fixed v3: Planned (ตามเวลา) ใช้ S-Curve แทน Linear → ตัวเลขสอดคล้องกัน
 - 🐛 Fixed v2: S-Curve ใช้ `update_date` แทน `timestamp`
 - 🐛 Fixed v1: ใช้ add_shape + add_annotation แทน add_vline
@@ -28,6 +32,46 @@ from services.progress_service import compute_overall_progress, check_milestone_
 from config_loader import load_settings
 
 DATA_DIR = Path(__file__).parent.parent / "data"
+
+
+# ============================================================
+# ★ STATUSES — ที่นับเป็น "เสร็จสิ้น" → actual = 100%
+# ============================================================
+FINAL_STATUSES = ("Accepted", "Closed")
+
+
+# ============================================================
+# ★ v5: Helper — Effective Actual (คำนึงถึง status)
+# ============================================================
+def _effective_actual(
+    deliverable_id: str,
+    status: str,
+    prog_df: pd.DataFrame,
+) -> float:
+    """
+    ★ v5: คำนวณ actual % ที่แท้จริง
+
+    Priority:
+    1. status = "Accepted" / "Closed" → return 100.0
+    2. progress_history มีข้อมูล → return latest actual_percent
+    3. ไม่มี → return 0.0
+    """
+    # ── Priority 1: Status final → 100% ──
+    if status and str(status) in FINAL_STATUSES:
+        return 100.0
+
+    # ── Priority 2: progress_history ──
+    if prog_df is None or prog_df.empty:
+        return 0.0
+
+    p = prog_df[prog_df["deliverable_id"] == deliverable_id]
+    if p.empty:
+        return 0.0
+
+    try:
+        return float(p["actual_percent"].iloc[-1])
+    except Exception:
+        return 0.0
 
 
 # ============================================================
@@ -53,6 +97,8 @@ RESPONSIBLE_UNITS = {
     "DLV-M1-16": "คณะกรรมการ",
     "DLV-M1-17": "คณะกรรมการ",
     "DLV-M1-18": "คณะกรรมการ",
+    "DLV-M1-19": "-",
+    "DLV-M1-20": "-",
     # ═══ M2 — Progress Report I ═══
     "DLV-M2-01": "ฝดท.1",
     "DLV-M2-02": "ฝยป.",
@@ -71,6 +117,19 @@ RESPONSIBLE_UNITS = {
     "DLV-M2-15": "คณะกรรมการ",
     "DLV-M2-16": "คณะกรรมการ",
     "DLV-M2-17": "คณะกรรมการ",
+    "DLV-M2-18": "ฝพธ.",
+    "DLV-M2-19": "ฝพธ.",
+    "DLV-M2-20": "สตส.",
+    "DLV-M2-21": "DPO",
+    "DLV-M2-22": "ฝบร./กบร.",
+    "DLV-M2-23": "ฝกม.",
+    "DLV-M2-24": "ฝกง.",
+    "DLV-M2-25": "ฝทบ.",
+    "DLV-M2-26": "ฝยป./กบค.",
+    "DLV-M2-27": "ฝดท.1",
+    "DLV-M2-28": "ฝดท.2",
+    "DLV-M2-29": "คณะกรรมการ",
+    "DLV-M2-30": "คณะกรรมการ",
     # ═══ M3 — Interim Report ═══
     "DLV-M3-01": "ฝดท.1",
     "DLV-M3-02": "สตส.",
@@ -91,6 +150,7 @@ RESPONSIBLE_UNITS = {
     "DLV-M3-17": "คณะกรรมการ",
     "DLV-M3-18": "คณะกรรมการ",
     "DLV-M3-19": "คณะกรรมการ",
+    "DLV-M3-20": "คณะกรรมการ",
     # ═══ M4 — Progress Report II ═══
     "DLV-M4-01": "คณะกรรมการ",
     "DLV-M4-02": "ฝดท.1",
@@ -108,6 +168,9 @@ RESPONSIBLE_UNITS = {
     "DLV-M4-14": "คณะกรรมการ",
     "DLV-M4-15": "คณะกรรมการ",
     "DLV-M4-16": "คณะกรรมการ",
+    "DLV-M4-17": "คณะกรรมการ",
+    "DLV-M4-18": "คณะกรรมการ",
+    "DLV-M4-19": "คณะกรรมการ",
     # ═══ M5 — Final Report ═══
     "DLV-M5-01": "คณะกรรมการ",
     "DLV-M5-02": "ฝดท.1",
@@ -137,6 +200,9 @@ UNIT_REFERENCE = {
     "ฝยป.":       "ฝ่ายยุทธศาสตร์และแผนงาน",
     "สตส.":       "สำนักตรวจสอบภายใน",
     "กกด.":       "กองกำกับดูแล / Compliance",
+    "DPO":        "Data Protection Officer",
+    "ฝบร./กบร.":  "ฝ่ายบำรุงรักษา / กองบำรุงรักษา",
+    "ฝยป./กบค.":  "ฝ่ายยุทธศาสตร์และแผนงาน / กองแผน",
 }
 
 
@@ -144,33 +210,17 @@ UNIT_REFERENCE = {
 # ★ WEIGHT NORMALIZER (ใช้สำหรับ S-Curve Plan)
 # ============================================================
 def _normalize_to_100(values: list, target: float = 100.0) -> list:
-    """
-    ปรับค่าใน list ให้ผลรวม = target พอดี (เช่น 100.00)
-
-    หลักการ:
-    - Scale ทุกค่าด้วย factor เดียวกัน (รักษาสัดส่วนเดิม)
-    - แก้ rounding ที่ตัวสุดท้ายเพื่อให้ผลรวมเป๊ะ
-    - Idempotent: ถ้ารันซ้ำด้วยค่าเดิม ผลลัพธ์จะเท่าเดิม
-
-    Args:
-        values: list ของตัวเลข (เช่น weekly plan %)
-        target: ค่าเป้าหมายของผลรวม (default 100.0)
-
-    Returns:
-        list ใหม่ที่ผลรวม = target
-    """
+    """ปรับค่าใน list ให้ผลรวม = target พอดี"""
     if not values:
         return []
 
     total = sum(values)
     if total <= 0:
-        # fallback: กระจายเท่า ๆ กัน
         n = len(values)
         if n == 0:
             return []
         each = round(target / n, 4)
         result = [each] * n
-        # Fix rounding
         diff = round(target - sum(result), 4)
         if abs(diff) > 1e-9:
             result[-1] = round(result[-1] + diff, 4)
@@ -179,10 +229,8 @@ def _normalize_to_100(values: list, target: float = 100.0) -> list:
     factor = target / total
     scaled = [round(v * factor, 4) for v in values]
 
-    # Fix rounding ให้ผลรวมเป๊ะ = target
     diff = round(target - sum(scaled), 4)
     if abs(diff) > 1e-9:
-        # ปรับที่ตัวสุดท้าย (หรือตัวที่มีค่ามากสุด ถ้าตัวสุดท้ายเป็น 0)
         last_idx = len(scaled) - 1
         scaled[last_idx] = round(scaled[last_idx] + diff, 4)
 
@@ -192,8 +240,6 @@ def _normalize_to_100(values: list, target: float = 100.0) -> list:
 # ============================================================
 # ★ S-CURVE PLAN DATA — Raw + Normalized
 # ============================================================
-# ข้อมูลดิบรายสัปดาห์ (52 สัปดาห์ ตาม Timeline TOR)
-# ⚠️ ค่าดิบเหล่านี้รวมได้ ~100.50% → ต้อง normalize ก่อนใช้
 _RAW_WEEKLY_PLAN_PCT = [
     0.98, 2.17, 2.92, 3.53,   # ส.ค. 69 (W1-W4)
     0.90, 0.50, 0.67, 0.89,   # ก.ย. 69
@@ -210,10 +256,8 @@ _RAW_WEEKLY_PLAN_PCT = [
     0.69, 1.39, 0.50, 0.00,   # ส.ค. 70
 ]
 
-# ✅ Normalize ให้ผลรวม = 100.00% พอดี (แก้ 100.50% → 100.00%)
 WEEKLY_PLAN_PCT = _normalize_to_100(_RAW_WEEKLY_PLAN_PCT, target=100.0)
 
-# Sanity check (debug)
 assert abs(sum(WEEKLY_PLAN_PCT) - 100.0) < 0.001, (
     f"WEEKLY_PLAN_PCT ต้องรวมได้ 100.00% แต่ได้ {sum(WEEKLY_PLAN_PCT):.4f}%"
 )
@@ -285,16 +329,12 @@ def _load_csv(path: Path, key_col=None):
 def _compute_scurve(proj, dl_df, prog_df, ms_df):
     """
     คำนวณ S-Curve: แผนสะสม vs จริงสะสม
-
-    - ใช้ update_date แทน timestamp (รองรับการบันทึกย้อนหลัง)
-    - เพิ่มจุด "วันนี้" เพื่อให้ KPI แสดงผลจริง ณ ปัจจุบัน
-    - interpolate plan สำหรับวันนี้ (ระหว่างสัปดาห์)
-    - ✅ Plan normalized ให้ผลรวม = 100.00%
+    ★ v5: ใช้ _effective_actual() ที่คำนึงถึง status = Accepted → 100%
     """
     start_d = _to_date(proj["project_start_date"]) or date(2026, 8, 18)
     today = date.today()
 
-    # ---- 1. เตรียม weight map ----
+    # ---- 1. เตรียม weight map + status map ----
     if dl_df is None or dl_df.empty:
         dl_filtered = pd.DataFrame()
     else:
@@ -326,36 +366,59 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
     ))
     total_weight = sum(dl_weight.values())
 
+    # ★ v5: status map สำหรับ override
+    status_map = dict(zip(
+        dl_filtered["deliverable_id"].astype(str),
+        dl_filtered["status"].astype(str).fillna(""),
+    ))
+
     # ---- 2. Helper: คำนวณ actual สะสม ณ วันที่ ----
     def _actual_at(cutoff_date):
-        if prog_df is None or prog_df.empty or total_weight <= 0:
-            return None
-
-        prog = prog_df.copy()
-        if "update_date" in prog.columns:
-            prog["_date"] = pd.to_datetime(prog["update_date"], errors="coerce").dt.date
-        else:
-            prog["_date"] = pd.to_datetime(prog["timestamp"], errors="coerce").dt.date
-
-        prog = prog.dropna(subset=["_date"])
-        sub = prog[prog["_date"] <= cutoff_date]
-        if sub.empty:
+        if total_weight <= 0:
             return 0.0
 
-        latest = (
-            sub.sort_values("_date")
-               .groupby("deliverable_id")
-               .tail(1)
-        )
+        # ★ v5: สร้าง actual_map เริ่มจาก status_map ก่อน
+        actual_map = {}
 
+        # Priority 1: status = Accepted/Closed → 100%
+        for did, status in status_map.items():
+            if str(status) in FINAL_STATUSES:
+                actual_map[did] = 100.0
+
+        # Priority 2: progress_history ที่ <= cutoff
+        if prog_df is not None and not prog_df.empty:
+            prog = prog_df.copy()
+            if "update_date" in prog.columns:
+                prog["_date"] = pd.to_datetime(prog["update_date"], errors="coerce").dt.date
+            else:
+                prog["_date"] = pd.to_datetime(prog["timestamp"], errors="coerce").dt.date
+
+            prog = prog.dropna(subset=["_date"])
+            sub = prog[prog["_date"] <= cutoff_date]
+
+            if not sub.empty:
+                latest = (
+                    sub.sort_values("_date")
+                       .groupby("deliverable_id")
+                       .tail(1)
+                )
+                for _, p in latest.iterrows():
+                    did = str(p["deliverable_id"])
+                    # ★ เฉพาะที่ยังไม่มีใน actual_map (status override อยู่แล้ว)
+                    if did not in actual_map:
+                        try:
+                            actual_map[did] = float(p.get("actual_percent", 0) or 0)
+                        except Exception:
+                            actual_map[did] = 0.0
+
+        # ── ถ้าไม่มีข้อมูลเลย ──
+        if not actual_map:
+            return 0.0
+
+        # ── คำนวณ weighted ──
         weighted = 0.0
-        for _, p in latest.iterrows():
-            did = str(p["deliverable_id"])
+        for did, a in actual_map.items():
             w = dl_weight.get(did, 0.0)
-            try:
-                a = float(p.get("actual_percent", 0) or 0)
-            except Exception:
-                a = 0.0
             weighted += w * a
 
         return round(weighted / total_weight, 2)
@@ -385,8 +448,7 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
     # ---- 4. คำนวณ actual สำหรับแต่ละสัปดาห์ ----
     for idx, row in df.iterrows():
         actual = _actual_at(row["date"])
-        if actual is not None:
-            df.at[idx, "actual_cumulative"] = actual
+        df.at[idx, "actual_cumulative"] = actual
 
     # ---- 5. แทรกจุด "วันนี้" ----
     last_week_date = df["date"].iloc[-1]
@@ -460,14 +522,14 @@ def render():
 
     today_sc = date.today()
 
-    # ---- แผน ณ วันนี้ (จาก S-Curve — interpolated) ----
+    # ---- แผน ณ วันนี้ ----
     _plan_today_df = scurve_df[scurve_df["date"] <= today_sc]
     planned_pct = (
         float(_plan_today_df["plan_cumulative"].iloc[-1])
         if not _plan_today_df.empty else 0.0
     )
 
-    # ---- จริง ณ วันนี้ (จาก S-Curve) ----
+    # ---- จริง ณ วันนี้ ----
     _actual_today_df = scurve_df[
         (scurve_df["date"] <= today_sc)
         & (scurve_df["actual_cumulative"].notna())
@@ -477,11 +539,11 @@ def render():
         if not _actual_today_df.empty else 0.0
     )
 
-    # ---- Overall (ถ่วงน้ำหนัก deliverable) ----
+    # ---- Overall ----
     overall = compute_overall_progress(proj["project_id"])
     actual_pct = overall["overall_progress"]
 
-    # ---- Variance = actual - plan ----
+    # ---- Variance ----
     variance = actual_pct - planned_pct
 
     # ---- วัน ----
@@ -624,6 +686,7 @@ def render():
 
     # ============================================================
     # SECTION 4 — MILESTONE TABLE
+    # ★ v5: ใช้ _effective_actual() ที่คำนึงถึง status
     # ============================================================
     st.markdown("---")
     st.markdown("### 📊 Milestone 1–5")
@@ -637,13 +700,17 @@ def render():
 
             m_dl = dl_df[dl_df["milestone_id"] == mid] if not dl_df.empty else dl_df
             m_actual = 0
-            if not m_dl.empty and not prog_df.empty:
+            if not m_dl.empty:
                 total_w = 0
                 weighted = 0
                 for _, d in m_dl.iterrows():
                     w = float(d.get("weight", 0) or 0)
-                    p = prog_df[prog_df["deliverable_id"] == d["deliverable_id"]]
-                    latest = float(p["actual_percent"].iloc[-1]) if len(p) else 0
+                    # ★ v5: ใช้ _effective_actual
+                    latest = _effective_actual(
+                        str(d["deliverable_id"]),
+                        str(d.get("status", "") or ""),
+                        prog_df,
+                    )
                     weighted += w * latest
                     total_w += w
                 m_actual = weighted / total_w if total_w else 0
@@ -682,7 +749,7 @@ def render():
         "คำนวณจาก progress snapshots ถ่วงน้ำหนักตาม deliverable weight"
     )
 
-    plan_today = planned_pct  # ใช้ค่าเดียวกันกับ KPI ด้านบน
+    plan_today = planned_pct
     gap_today = actual_today - plan_today
     plan_end = float(scurve_df["plan_cumulative"].iloc[-1])
 
@@ -884,7 +951,8 @@ def render():
         )
 
     # ============================================================
-    # SECTION 5 — DELIVERABLE PROGRESS TABLE (เรียงตามลำดับงาน)
+    # SECTION 5 — DELIVERABLE PROGRESS TABLE
+    # ★ v5: ใช้ _effective_actual()
     # ============================================================
     st.markdown("---")
     st.markdown("### 📈 ความคืบหน้าแต่ละ Deliverable")
@@ -950,11 +1018,12 @@ def render():
         for i, (_, d) in enumerate(dl_view.iterrows(), 1):
             did = str(d["deliverable_id"])
 
-            if not prog_df.empty:
-                p = prog_df[prog_df["deliverable_id"] == did]
-                actual = float(p["actual_percent"].iloc[-1]) if len(p) else 0.0
-            else:
-                actual = 0.0
+            # ★ v5: ใช้ _effective_actual
+            actual = _effective_actual(
+                did,
+                str(d.get("status", "") or ""),
+                prog_df,
+            )
 
             ps = _to_date(d.get("planned_start"))
             pf = _to_date(d.get("planned_finish"))
@@ -1023,15 +1092,20 @@ def render():
             )
 
         # ---- Bar Chart ----
+        # ★ v5: ใช้ _effective_actual()
         st.markdown("---")
         st.markdown("#### 📊 Weight vs Progress (เรียงตามลำดับงาน)")
 
-        if not dl_view.empty and not prog_df.empty:
+        if not dl_view.empty:
             chart_rows = []
             for _, d in dl_view.iterrows():
                 did = d["deliverable_id"]
-                p = prog_df[prog_df["deliverable_id"] == did]
-                actual = float(p["actual_percent"].iloc[-1]) if len(p) else 0.0
+                # ★ v5: effective actual
+                actual = _effective_actual(
+                    str(did),
+                    str(d.get("status", "") or ""),
+                    prog_df,
+                )
                 chart_rows.append({
                     "sort_key": f"{d['milestone_id']}|{did}",
                     "label":    f"{did} · {str(d['deliverable_name'])[:40]}",
@@ -1077,9 +1151,6 @@ def render():
                     margin=dict(l=10, r=80, t=30, b=40),
                 )
                 st.plotly_chart(fig_dl, use_container_width=True)
-        else:
-            if prog_df.empty:
-                st.info("ยังไม่มีข้อมูล Progress — บันทึกที่เมนู 📈 Progress Update")
 
     # ============================================================
     # SECTION 6 — ISSUES & ACTIONS

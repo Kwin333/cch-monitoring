@@ -1,12 +1,15 @@
 """Deliverable Master — จัดการรายการส่งมอบตาม TOR
 
+★ v4 — แก้ไข:
+- 🔧 Fix: Status = "Accepted" / "Closed" → Actual = 100% (override progress_history)
+- เพิ่ม helper `_effective_progress()` ที่คำนึงถึง status
+- แก้ `_latest_actual()` ให้รับ status param
+- แก้ callers ทั้ง 3 จุด (KPI tiles, edit mode, card list)
+- เพิ่ม Column "Progress Source" ในตาราง (badge ว่ามาจาก status หรือ history)
+
 ★ v3 — แก้ไข:
-- 🔧 Fix: ป้องกัน `_latest_progress` (display column) ถูก save ลง DB
-  → ลบ display column ก่อน upsert ทุกครั้ง
-- เพิ่ม Weight Audit Panel ที่ตรวจสอบผลรวม weight = 100.00%
-- เพิ่ม Warning + คำแนะนำเมื่อ weight ไม่ครบ 100%
-- เพิ่ม Breakdown ต่อ Milestone แบบ visual + progress bar
-- ปรับ Warning banner ให้สอดคล้องกับ bootstrap.py (normalized weights)
+- ป้องกัน `_latest_progress` (display column) ถูก save ลง DB
+- เพิ่ม Weight Audit Panel
 """
 import streamlit as st
 import pandas as pd
@@ -38,7 +41,10 @@ TARGET_WEIGHT_TOTAL = 100.0
 WEIGHT_TOLERANCE = 0.01  # ยอมรับส่วนต่าง ±0.01%
 
 # Display columns ที่ห้าม save ลง DB
-DISPLAY_COLS = ["_latest_progress"]
+DISPLAY_COLS = ["_latest_progress", "_progress_source"]
+
+# Status ที่นับเป็น "เสร็จสิ้น" → actual = 100%
+FINAL_STATUSES = ("Accepted", "Closed")
 
 
 # ============================================================
@@ -102,16 +108,63 @@ def _validate_dl(d: dict):
         raise ValidationError("⚠️ Weight ต้องอยู่ระหว่าง 0–100%")
 
 
-def _latest_actual(deliverable_id: str, prog_df) -> float:
+# ============================================================
+# ★ v4: Effective Progress (คำนึงถึง status)
+# ============================================================
+def _latest_actual(
+    deliverable_id: str,
+    prog_df,
+    status: str = None,
+) -> tuple:
+    """
+    ★ v4: คำนวณ actual % ที่แท้จริง + source
+
+    Priority:
+    1. status = "Accepted" / "Closed" → (100.0, "status")
+    2. progress_history มีข้อมูล → (latest_actual, "history")
+    3. ไม่มี → (0.0, "none")
+
+    Returns:
+        (actual_pct: float, source: str)
+        source: "status" | "history" | "none"
+    """
+    # ── Priority 1: Status final → 100% ──
+    if status and str(status) in FINAL_STATUSES:
+        return 100.0, "status"
+
+    # ── Priority 2: progress_history ──
     if prog_df is None or prog_df.empty:
-        return 0.0
+        return 0.0, "none"
+
     p = prog_df[prog_df["deliverable_id"] == deliverable_id]
     if p.empty:
-        return 0.0
+        return 0.0, "none"
+
     try:
-        return float(p["actual_percent"].iloc[-1])
+        # เรียงตาม timestamp ล่าสุด
+        if "timestamp" in p.columns:
+            p = p.copy()
+            p["_ts"] = pd.to_datetime(p["timestamp"], errors="coerce")
+            p = p.dropna(subset=["_ts"]).sort_values("_ts")
+        return float(p["actual_percent"].iloc[-1]), "history"
     except Exception:
-        return 0.0
+        return 0.0, "none"
+
+
+def _latest_actual_value(deliverable_id: str, prog_df, status: str = None) -> float:
+    """Wrapper — คืนค่า float เท่านั้น (สำหรับ backward compatibility)"""
+    val, _ = _latest_actual(deliverable_id, prog_df, status=status)
+    return val
+
+
+def _progress_source_badge(source: str) -> str:
+    """Badge แสดงที่มาของ progress"""
+    m = {
+        "status": "🟢 สถานะ",
+        "history": "📊 ประวัติ",
+        "none": "⚪ ไม่มี",
+    }
+    return m.get(source, "-")
 
 
 def _progress_bar_html(pct: float, color: str = "#0B5ED7", height: int = 10) -> str:
@@ -137,10 +190,7 @@ def _tile(label, value, sub, color):
 
 
 def _strip_display_cols(row: dict) -> dict:
-    """
-    ★ v3 — ลบ display columns ก่อน save
-    ป้องกัน error: column "_latest_progress" does not exist
-    """
+    """ลบ display columns ก่อน save (ป้องกัน error "_latest_progress")"""
     if not isinstance(row, dict):
         return row
     clean = dict(row)
@@ -152,15 +202,6 @@ def _strip_display_cols(row: dict) -> dict:
 def _get_weight_summary(df: pd.DataFrame) -> dict:
     """
     คำนวณสรุป weight จาก df
-
-    Returns:
-        dict = {
-            "total": float,
-            "n_items": int,
-            "by_milestone": pd.DataFrame (Milestone, Weight, Count),
-            "is_valid": bool,
-            "delta": float,
-        }
     """
     if df.empty:
         return {
@@ -171,14 +212,12 @@ def _get_weight_summary(df: pd.DataFrame) -> dict:
             "delta": -TARGET_WEIGHT_TOTAL,
         }
 
-    # แปลง weight เป็น numeric
     work = df.copy()
     work["weight"] = pd.to_numeric(work["weight"], errors="coerce").fillna(0.0)
 
     total = float(work["weight"].sum())
     n_items = len(work)
 
-    # Breakdown ต่อ milestone
     by_ms = (
         work.groupby("milestone_id")
         .agg(Weight=("weight", "sum"), Count=("deliverable_id", "count"))
@@ -204,12 +243,7 @@ def _get_weight_summary(df: pd.DataFrame) -> dict:
 # ★ WEIGHT AUDIT PANEL
 # ============================================================
 def _render_weight_audit(df: pd.DataFrame):
-    """
-    แสดง Weight Audit Panel
-    - KPI tiles: จำนวน, Weight รวม, สถานะ
-    - Breakdown table ต่อ Milestone
-    - Warning + fix hint ถ้า weight ไม่ครบ
-    """
+    """แสดง Weight Audit Panel"""
     st.markdown("---")
     st.markdown("### ⚖️ Weight Audit — ตรวจสอบน้ำหนักคะแนน")
 
@@ -335,14 +369,12 @@ def _render_weight_audit(df: pd.DataFrame):
     if by_ms.empty:
         st.info("ไม่มีข้อมูล")
     else:
-        # แสดงด้วย dataframe + column config
         display_df = by_ms.copy()
         display_df.columns = ["Milestone", "Weight (%)", "จำนวน Deliverable"]
         display_df["Weight (%)"] = display_df["Weight (%)"].apply(
             lambda x: f"{float(x):.2f}%"
         )
 
-        # เพิ่มแถว Total
         total_row = pd.DataFrame([{
             "Milestone": "**รวม**",
             "Weight (%)": f"**{total_w:.2f}%**",
@@ -393,7 +425,7 @@ def render():
     df = repo.read()
     prog_df = ProgressRepo().read()
 
-    # กรองแถวขยะ (แถวที่มี milestone_id ไม่ใช่ MLS-xx)
+    # กรองแถวขยะ
     df = df[df["milestone_id"].astype(str).str.startswith("MLS")].reset_index(drop=True)
 
     # โหลด Milestone list
@@ -406,6 +438,24 @@ def render():
         ms_df = pd.DataFrame()
 
     # ============================================================
+    # ★ v4: คำนวณ Progress + Source (คำนึงถึง status)
+    # ============================================================
+    if not df.empty:
+        progress_data = df.apply(
+            lambda row: _latest_actual(
+                row["deliverable_id"],
+                prog_df,
+                status=row.get("status"),
+            ),
+            axis=1,
+        )
+        df["_latest_progress"] = progress_data.apply(lambda x: x[0])
+        df["_progress_source"] = progress_data.apply(lambda x: x[1])
+    else:
+        df["_latest_progress"] = pd.Series(dtype=float)
+        df["_progress_source"] = pd.Series(dtype=str)
+
+    # ============================================================
     # KPI TILES
     # ============================================================
     st.markdown("### 📊 ภาพรวม Deliverables")
@@ -416,17 +466,9 @@ def render():
         if not df.empty else 0
     )
 
-    # ★ Progress + Status — เพิ่ม display column (จะถูกลบก่อน save)
-    if not df.empty:
-        df["_latest_progress"] = df["deliverable_id"].apply(
-            lambda x: _latest_actual(x, prog_df)
-        )
-    else:
-        df["_latest_progress"] = []
-
     accepted = int((df["status"] == "Accepted").sum()) if not df.empty else 0
     in_progress = int((df["status"] == "In Progress").sum()) if not df.empty else 0
-    completed = int((df["status"].isin(["Accepted", "Closed"])).sum()) if not df.empty else 0
+    completed = int((df["status"].isin(FINAL_STATUSES)).sum()) if not df.empty else 0
 
     k1, k2, k3, k4 = st.columns(4)
 
@@ -455,7 +497,7 @@ def render():
             ⚠️ <b>Weight รวม = {total_weight:.2f}%</b> — ควรปรับให้รวมได้
             100.00% เพื่อให้ Overall Progress แม่นยำ<br>
             <span style="font-size:11.5px;color:#666;">
-                💡 ดูรายละเอียดที่แท็บ <b>📥 CSV → ⚖️ Weight Audit</b>
+                💡 ดูรายละเอียดที่แท็บ <b>📥 CSV & Weight Audit</b>
                 หรือไปที่ <b>🔧 Settings → Rebalance Deliverable Weights</b>
             </span>
         </div>
@@ -535,7 +577,9 @@ def render():
             for _, r in view.iterrows():
                 did = r["deliverable_id"]
                 prog = float(r["_latest_progress"])
+                source = str(r.get("_progress_source", "none"))
                 w = float(r.get("weight", 0) or 0)
+                status = str(r.get("status", "") or "")
 
                 # สีตาม progress
                 if prog >= 100:
@@ -570,11 +614,12 @@ def render():
                     # Progress bar
                     st.markdown(_progress_bar_html(prog, p_color), unsafe_allow_html=True)
 
-                    # Status row
+                    # Status row (★ v4: เพิ่ม Progress Source badge)
                     st.markdown(
                         f"<div style='font-size:12px;color:#555;margin:6px 0 12px 0;'>"
-                        f"<b>Status:</b> {_status_badge(r.get('status'))} &nbsp;|&nbsp; "
+                        f"<b>Status:</b> {_status_badge(status)} &nbsp;|&nbsp; "
                         f"<b>Compliance:</b> {_compliance_badge(r.get('compliance_status'))} &nbsp;|&nbsp; "
+                        f"<b>Source:</b> {_progress_source_badge(source)} &nbsp;|&nbsp; "
                         f"<b>Reviewer:</b> {r.get('reviewer') or '-'} "
                         f"({_fmt_date(r.get('review_date'))})"
                         f"</div>",
@@ -597,7 +642,6 @@ def render():
             key="dl_mode",
         )
 
-        # ---------- Auto-generate new ID ----------
         def _next_dl_id() -> str:
             if df.empty:
                 return "DLV-001"
@@ -638,7 +682,6 @@ def render():
                 init_status = c9.selectbox("สถานะเริ่มต้น", STATUSES, key="dl_new_st")
                 init_comp = c10.selectbox("Compliance", COMPLIANCE_STATUSES, key="dl_new_comp")
 
-                # ---- Preview ผลรวม Weight หลังเพิ่ม ----
                 if total_dl > 0:
                     new_total = total_weight + float(w)
                     delta = new_total - TARGET_WEIGHT_TOTAL
@@ -681,11 +724,9 @@ def render():
                     }
                     _validate_dl(row)
 
-                    # ตรวจ duplicate ID
                     if did.strip() in df["deliverable_id"].astype(str).values:
                         raise ValidationError(f"⚠️ รหัส `{did}` มีอยู่แล้ว — กรุณาใช้รหัสอื่น")
 
-                    # ★ v3: ลบ display cols ก่อน save (defense in depth)
                     row_clean = _strip_display_cols(row)
 
                     repo.upsert(row_clean, key="deliverable_id")
@@ -719,17 +760,19 @@ def render():
                     ),
                     key="dl_edit_sel",
                 )
-                # ★ v3: เลือกแถวโดยตรง (จะ strip display col ตอน save)
                 r = df[df["deliverable_id"] == dl_sel].iloc[0]
 
-                # --- Reference info ---
+                # --- Reference info (★ v4: ใช้ status ของ r) ---
                 info1, info2, info3 = st.columns(3)
                 with info1:
                     st.markdown(f"**📌 Milestone:** `{r['milestone_id']}`  \n"
                                 f"**🔗 TOR:** {r.get('tor_clause', '-')}")
                 with info2:
-                    prog = _latest_actual(dl_sel, prog_df)
-                    st.markdown(f"**📈 Progress:** {prog:.0f}%  \n"
+                    prog, source = _latest_actual(
+                        dl_sel, prog_df, status=r.get("status")
+                    )
+                    st.markdown(f"**📈 Progress:** {prog:.0f}% "
+                                f"({_progress_source_badge(source)})  \n"
                                 f"**⚖️ Weight:** {float(r.get('weight', 0) or 0):.2f}%")
                 with info3:
                     st.markdown(f"**📅 Updated:** `{r.get('updated_at', '-')}`")
@@ -783,7 +826,6 @@ def render():
                                                 value=str(r.get("review_comment", "")),
                                                 height=80, key="dl_edit_revcomment")
 
-                    # ---- Preview ผลรวมหลังแก้ ----
                     old_w = float(r.get("weight", 0) or 0)
                     new_total = total_weight - old_w + float(w)
                     delta_preview = new_total - TARGET_WEIGHT_TOTAL
@@ -796,6 +838,22 @@ def render():
                             f"💡 **Weight รวมหลังแก้:** {new_total:.2f}% "
                             f"({delta_preview:+.2f}% จากเป้าหมาย 100%)"
                         )
+
+                    # ★ v4: Preview — ถ้าเปลี่ยนเป็น Accepted → actual = 100%
+                    if status != r["status"]:
+                        old_prog, old_src = _latest_actual(
+                            dl_sel, prog_df, status=r.get("status")
+                        )
+                        new_prog, new_src = _latest_actual(
+                            dl_sel, prog_df, status=status
+                        )
+                        if old_prog != new_prog:
+                            st.info(
+                                f"📊 **Progress จะเปลี่ยน:** "
+                                f"{old_prog:.0f}% → {new_prog:.0f}% "
+                                f"({_progress_source_badge(old_src)} → "
+                                f"{_progress_source_badge(new_src)})"
+                            )
 
                     c_btn1, c_btn2 = st.columns([1, 1])
                     save_edit = c_btn1.form_submit_button("💾 บันทึก",
@@ -813,7 +871,6 @@ def render():
 
                 if save_edit:
                     try:
-                        # ★ v3: strip display cols ก่อนสร้าง dict
                         new_r = _strip_display_cols(r.to_dict())
                         new_r.update({
                             "milestone_id": msid,
@@ -834,9 +891,7 @@ def render():
                         })
                         _validate_dl(new_r)
 
-                        # ★ v3: strip อีกครั้ง (defense in depth)
                         new_r = _strip_display_cols(new_r)
-
                         old_r = _strip_display_cols(r.to_dict())
 
                         repo.upsert(new_r, key="deliverable_id")
@@ -912,7 +967,6 @@ def render():
         st.markdown("### 📥 ข้อมูล CSV (อ่านเท่านั้น)")
         st.caption("ข้อมูลจริงอยู่ในไฟล์ `data/master/deliverable_master.csv`")
 
-        # ★ v3: strip display cols ก่อนแสดง
         df_clean = df.drop(columns=DISPLAY_COLS, errors="ignore").copy()
 
         st.dataframe(
@@ -935,7 +989,6 @@ def render():
         if not df_clean.empty:
             _render_weight_audit(df_clean)
 
-        # ---- สรุปแบบเดิม (secondary view) ----
         if not df_clean.empty:
             with st.expander("📊 สรุปแบบย่อ (Weight by Milestone)", expanded=False):
                 wsum = df_clean.groupby("milestone_id")["weight"].sum().reset_index()
