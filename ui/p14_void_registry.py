@@ -3,8 +3,15 @@
 Components:
 - 📜 Tab 1: Voided Records (Restore / Hard Delete)
 - 📈 Tab 2: Charts
-- 🧹 Tab 3: Cleanup Orphans (admin only) ← ใหม่
+- 🧹 Tab 3: Cleanup Orphans (admin only)
 - 📥 Tab 4: CSV Export
+
+★ v2 — แก้ไข:
+- 🔧 Fix: รองรับ `deliverable_review` / `deliverable_review_history`
+- 🔧 Fix: เพิ่ม REVIEW_FIELDS ครบชุด (ใช้ร่วมกับ p04_deliverable_review.py)
+- 🔧 Fix: `RECORD_TYPE_MAP` + `_get_repo_for_type()` + `_get_repo_by_name()`
+- ✨ เพิ่ม REPO FACTORY กลาง (single source of truth)
+- ✨ เพิ่ม support สำหรับ resolution_history, meeting_history ที่หลุด
 """
 import streamlit as st
 import pandas as pd
@@ -18,6 +25,23 @@ from core.audit import append_audit
 from core.time_util import today_str
 from core.permissions import can_hard_delete
 from core.ui_helpers import render_hard_delete_form
+
+
+# ============================================================
+# ★ v2: REVIEW_FIELDS (ใช้ร่วมกับ p04_deliverable_review.py)
+# ============================================================
+REVIEW_FIELDS = [
+    "timestamp", "review_id", "deliverable_id", "milestone_id", "tor_clause",
+    "version_no", "review_dimension", "reviewer", "review_date",
+    "checklist_1_doc", "checklist_2_content", "checklist_3_evidence",
+    "checklist_4_plan", "checklist_5_milestone", "checklist_6_prev",
+    "checklist_7_fixed", "checklist_8_no_pending",
+    "checklist_score",
+    "result", "compliance_status", "comment", "evidence_reference",
+    "linked_issue_id", "next_action", "next_review_date", "created_by",
+]
+
+REVIEW_FILENAME = "deliverable_review_history.csv"
 
 
 # ============================================================
@@ -40,16 +64,15 @@ RECORD_TYPE_MAP = {
     "payment_history":    ("💵 เบิกจ่าย",            "payment_history"),
     "deliverable":        ("📦 Deliverable Master", "deliverable_master"),
     "deliverable_master": ("📦 Deliverable Master", "deliverable_master"),
+    # ★ v2: เพิ่ม Review
+    "deliverable_review":         ("🔎 Deliverable Review", REVIEW_FILENAME),
+    "deliverable_review_history": ("🔎 Deliverable Review", REVIEW_FILENAME),
 }
 
 
 # ============================================================
 # CLEANUP — Orphan Detection
 # ============================================================
-# Orphaned = record ที่ link ไปยัง entity ที่ถูกลบ (voided)
-# ตรวจตาม field: link_dl, link_ms, source_id
-# ============================================================
-
 ORPHAN_TYPES = [
     ("progress",   "📈 Progress",   "#0B5ED7"),
     ("action",     "⚡ Action",     "#F57C00"),
@@ -107,7 +130,6 @@ def _find_orphaned_records() -> dict:
             src_type = str(r.get("source_type", "") or "")
             src_id = str(r.get("source_id", "") or "")
             reasons = []
-            # Action → Issue / Resolution / Meeting / Deliverable
             if src_id and src_id in voided:
                 reasons.append(f"source {src_type} {src_id}")
             if reasons:
@@ -147,15 +169,7 @@ def _find_orphaned_records() -> dict:
     # ---- Review ----
     try:
         from repositories.base_repo import AppendOnlyRepo
-        REVIEW_FIELDS = [
-            "timestamp", "review_id", "deliverable_id", "milestone_id",
-            "version_no", "review_dimension", "reviewer", "review_date",
-            "checklist_score", "result", "compliance_status", "comment",
-            "created_by",
-        ]
-        df = AppendOnlyRepo(
-            "deliverable_review_history.csv", REVIEW_FIELDS
-        ).read()
+        df = AppendOnlyRepo(REVIEW_FILENAME, REVIEW_FIELDS).read()
         for _, r in df.iterrows():
             did = str(r.get("deliverable_id", "") or "")
             mid = str(r.get("milestone_id", "") or "")
@@ -210,31 +224,45 @@ def _find_orphaned_records() -> dict:
     return orphans
 
 
+# ============================================================
+# ★ v2: REPO FACTORY — Single Source of Truth
+# ============================================================
 def _get_repo_by_name(repo_name: str):
-    """คืน Repo instance จากชื่อ"""
+    """
+    ★ v2: คืน Repo instance จากชื่อ key (ใช้ทั้งใน Cleanup + Hard Delete)
+    """
     from repositories.progress_repo import ProgressRepo
     from repositories.action_repo import ActionRepo
     from repositories.issue_repo import IssueRepo
     from repositories.acceptance_repo import AcceptanceRepo, PaymentRepo
+    from repositories.meeting_repo import MeetingRepo, ResolutionRepo
+    from repositories.deliverable_repo import DeliverableRepo
     from repositories.base_repo import AppendOnlyRepo
 
-    REVIEW_FIELDS = [
-        "timestamp", "review_id", "deliverable_id", "milestone_id",
-        "version_no", "review_dimension", "reviewer", "review_date",
-        "checklist_score", "result", "compliance_status", "comment",
-        "created_by",
-    ]
-
     mapping = {
-        "progress":   ProgressRepo,
-        "action":     ActionRepo,
-        "issue":      IssueRepo,
-        "acceptance": AcceptanceRepo,
-        "payment":    PaymentRepo,
+        "progress":           ProgressRepo,
+        "progress_history":   ProgressRepo,
+        "action":             ActionRepo,
+        "action_history":     ActionRepo,
+        "issue":              IssueRepo,
+        "issue_history":      IssueRepo,
+        "acceptance":         AcceptanceRepo,
+        "acceptance_history": AcceptanceRepo,
+        "payment":            PaymentRepo,
+        "payment_history":    PaymentRepo,
+        "meeting":            MeetingRepo,
+        "meeting_history":    MeetingRepo,
+        "resolution":         ResolutionRepo,
+        "resolution_history": ResolutionRepo,
+        "deliverable":        DeliverableRepo,
+        "deliverable_master": DeliverableRepo,
     }
 
-    if repo_name == "review":
-        return AppendOnlyRepo("deliverable_review_history.csv", REVIEW_FIELDS)
+    # ★ Review — ต้องใช้ AppendOnlyRepo + REVIEW_FIELDS
+    if repo_name in ("review",
+                     "deliverable_review",
+                     "deliverable_review_history"):
+        return AppendOnlyRepo(REVIEW_FILENAME, REVIEW_FIELDS)
 
     cls = mapping.get(repo_name)
     return cls() if cls else None
@@ -281,35 +309,10 @@ def _get_record_type_label(record_type: str) -> str:
 
 
 def _get_repo_for_type(record_type: str):
-    """คืน Repo instance ที่ตรงกับ record_type"""
-    from repositories.issue_repo import IssueRepo
-    from repositories.action_repo import ActionRepo
-    from repositories.progress_repo import ProgressRepo
-    from repositories.meeting_repo import MeetingRepo, ResolutionRepo
-    from repositories.acceptance_repo import AcceptanceRepo, PaymentRepo
-    from repositories.deliverable_repo import DeliverableRepo
-
-    mapping = {
-        "issue":              IssueRepo,
-        "issue_history":      IssueRepo,
-        "action":             ActionRepo,
-        "action_history":     ActionRepo,
-        "progress":           ProgressRepo,
-        "progress_history":   ProgressRepo,
-        "meeting":            MeetingRepo,
-        "meeting_history":    MeetingRepo,
-        "resolution":         ResolutionRepo,
-        "resolution_history": ResolutionRepo,
-        "acceptance":         AcceptanceRepo,
-        "acceptance_history": AcceptanceRepo,
-        "payment":            PaymentRepo,
-        "payment_history":    PaymentRepo,
-        "deliverable":        DeliverableRepo,
-        "deliverable_master": DeliverableRepo,
-    }
-
-    cls = mapping.get(record_type)
-    return cls() if cls else None
+    """
+    ★ v2: เรียกใช้ _get_repo_by_name() แทน — single source of truth
+    """
+    return _get_repo_by_name(record_type)
 
 
 def _after_hard_delete(void_id: str):
@@ -324,7 +327,7 @@ def _after_hard_delete(void_id: str):
 def render():
     st.title("🗑️ Voided Records Registry")
     st.caption(
-        "ศูนย์กลางข้อมูลที่ถูก Soft Delete — ข้อมูลยังอยู่ใน CSV เสมอ "
+        "ศูนย์กลางข้อมูลที่ถูก Soft Delete — ข้อมูลยังอยู่ใน DB เสมอ "
         "สามารถกู้คืน (Restore) หรือลบถาวร (Hard Delete) ได้"
     )
 
@@ -338,8 +341,9 @@ def render():
                     padding:12px 16px;border-radius:8px;margin-bottom:14px;
                     font-size:12.5px;color:#0D47A1;">
             ℹ️ <b>Soft Delete = ซ่อนจาก UI เท่านั้น</b> — ข้อมูลจริงยังอยู่ใน
-            <code>data/history/*.csv</code> และ
-            <code>data/audit/voided_records.csv</code> ตามหลัก Audit Trail
+            <code>data/history/*.csv</code> หรือ
+            <code>DB tables</code> และ <code>voided_records</code>
+            ตามหลัก Audit Trail
             <br>
             🔗 <b>ไม่สับสน:</b> ทุก record ที่ถูกซ่อนจะปรากฏที่นี่ + มี badge
             ในหน้าต้นทาง
@@ -570,13 +574,16 @@ def render():
                         st.markdown(f"**เวลาลบ:** {_fmt_dt(r.get('voided_at'))}")
                         st.markdown(f"**Mode:** `{r.get('mode', 'soft')}`")
 
+                # ---- Hard Delete Form ----
                 if allow_hard_delete and st.session_state.get(
                     f"show_hd_{vid}", False
                 ):
                     repo = _get_repo_for_type(r["record_type"])
                     if repo is None:
                         st.error(
-                            f"❌ ไม่พบ Repo สำหรับ `{r['record_type']}`"
+                            f"❌ ไม่พบ Repo สำหรับ `{r['record_type']}`  \n"
+                            f"💡 กรุณาแจ้งผู้พัฒนาให้เพิ่ม mapping "
+                            f"ใน `_get_repo_by_name()`"
                         )
                         if st.button("❌ ปิด", key=f"close_hd_{vid}"):
                             st.session_state.pop(f"show_hd_{vid}", None)
@@ -761,7 +768,6 @@ def render():
                         f"{label} — **{len(items)}** รายการ",
                         expanded=False,
                     ):
-                        # แสดงในตาราง
                         rows = [
                             {
                                 "ID": it["id"],
@@ -785,7 +791,6 @@ def render():
                     "Hard Delete = ลบถาวรพร้อม backup"
                 )
 
-                # ---- SOFT DELETE ALL ----
                 col_sd, col_hd = st.columns(2)
 
                 with col_sd:
@@ -795,7 +800,7 @@ def render():
                             <div style="font-size:12.5px;color:#333;
                                         margin-bottom:8px;">
                                 ซ่อน <b>{total_orphans}</b> records จาก UI<br>
-                                • ข้อมูลยังอยู่ใน CSV<br>
+                                • ข้อมูลยังอยู่ใน DB<br>
                                 • กู้คืนได้จากหน้า 📜 รายการที่ถูกลบ<br>
                                 • ไม่มี backup
                             </div>
@@ -825,7 +830,6 @@ def render():
                                     user=st.session_state.user,
                                 )
 
-                # ---- HARD DELETE ALL ----
                 with col_hd:
                     with st.expander("🔴 Hard Delete All", expanded=False):
                         st.markdown(
@@ -833,7 +837,7 @@ def render():
                             <div style="font-size:12.5px;color:#333;
                                         margin-bottom:8px;">
                                 <b>ลบถาวร {total_orphans} records</b><br>
-                                • ลบทั้ง UI และ CSV<br>
+                                • ลบทั้ง UI และ DB<br>
                                 • <b>ไม่สามารถกู้คืน</b>ได้<br>
                                 • มี backup ก่อนลบ
                             </div>
@@ -899,12 +903,19 @@ def render():
             )
 
         st.markdown("---")
-        st.markdown("#### 📁 ตำแหน่งไฟล์จริง")
+        st.markdown("#### 📁 ตำแหน่งไฟล์/ตารางจริง")
         st.code(
-            "data/audit/voided_records.csv    ← รายการที่ถูกลบ\n"
-            "data/history/*.csv                ← ข้อมูลจริง (ยังอยู่ครบ)\n"
-            "data/audit/audit_log.csv          ← ประวัติการลบทั้งหมด\n"
-            "data/backup/*.csv                 ← Backup ก่อน Hard Delete",
+            "DB Table: deliverable_review_history  ← Review history\n"
+            "DB Table: progress_history             ← Progress snapshots\n"
+            "DB Table: issue_history                ← Issues\n"
+            "DB Table: action_history               ← Actions\n"
+            "DB Table: meeting_history              ← Meetings\n"
+            "DB Table: resolution_history           ← Resolutions\n"
+            "DB Table: acceptance_history           ← Acceptances\n"
+            "DB Table: payment_history              ← Payments\n"
+            "DB Table: deliverable_master           ← Deliverables\n"
+            "DB Table: voided_records               ← รายการที่ถูกลบ\n"
+            "DB Table: audit_log                    ← ประวัติทั้งหมด",
             language="text",
         )
 
