@@ -6,24 +6,25 @@
 - ★ KPI 4 ตัว: แผน ณ วันนี้ / จริง ณ วันนี้ / ส่วนต่าง / แผนรวม
 - ★ Section 5: ตาราง Deliverable เรียงตามลำดับงาน (M1 → M5)
 
+- 🐛 Fixed v8:
+  - ★ โหลด project_master + milestone_master จาก DB ผ่าน MasterRepo
+    (ไม่ใช่ CSV — แก้บั๊ก M1 ขึ้น RED ทั้งที่ Accepted แล้ว)
+  - ★ Early Warning Summary: เพิ่ม fallback ตรวจ acc_df
+    (ถ้า milestone_master.status เก่า → เช็คจาก Acceptance)
+
 - 🐛 Fixed v7:
-  - ★ S-Curve: เส้น Actual ขึ้นตาม planned_finish จริง
-    * Accepted + cutoff >= planned_finish → 100%
-    * Accepted + cutoff < planned_finish  → ใช้ progress_history
-  - ★ Footer: ใช้ Bangkok timezone (now_str) แทน datetime.now() (UTC)
-  
+  - S-Curve: เส้น Actual ขึ้นตาม planned_finish จริง
+  - Footer: ใช้ Bangkok timezone
+
 - 🐛 Fixed v6:
   - RESPONSIBLE_UNITS อัปเดตตาม ID ใหม่ (เรียงตาม Excel #)
-  - DLV-M1-01..14, DLV-M2-01..30, DLV-M3-01..20, DLV-M4-01..19
-  - เพิ่ม UNIT_REFERENCE "10 หน่วยงานเกี่ยวข้อง"
-  - ใช้ sequence จาก DB ในการเรียง (fallback: parse จาก ID)
+  - ใช้ sequence จาก DB ในการเรียง
 
 - 🐛 Fixed v5:
   - Status = "Accepted" / "Closed" → actual = 100%
-  - S-Curve, Milestone table, Deliverable table, Bar chart ทั้งหมดใช้ logic นี้
-  - เพิ่ม helper `_effective_actual()` ใช้ร่วมกันทั้งหน้า
+
 - 🐛 Fixed v4: WEEKLY_PLAN_PCT normalize ให้ผลรวม = 100.00% พอดี
-- 🐛 Fixed v3: Planned (ตามเวลา) ใช้ S-Curve แทน Linear → ตัวเลขสอดคล้องกัน
+- 🐛 Fixed v3: Planned (ตามเวลา) ใช้ S-Curve แทน Linear
 - 🐛 Fixed v2: S-Curve ใช้ `update_date` แทน `timestamp`
 - 🐛 Fixed v1: ใช้ add_shape + add_annotation แทน add_vline
 """
@@ -39,40 +40,47 @@ from repositories.acceptance_repo import AcceptanceRepo, PaymentRepo
 from repositories.action_repo import ActionRepo
 from repositories.issue_repo import IssueRepo
 from repositories.meeting_repo import MeetingRepo, ResolutionRepo
+from repositories.milestone_repo import MilestoneRepo
+from repositories.base_repo import MasterRepo
 from services.progress_service import compute_overall_progress, check_milestone_warning
 from config_loader import load_settings
-from core.time_util import now_str   # ★ v7: Bangkok timezone
+from core.time_util import now_str
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 # ============================================================
-# ★ STATUSES — ที่นับเป็น "เสร็จสิ้น" → actual = 100%
+# ★ Constants
 # ============================================================
 FINAL_STATUSES = ("Accepted", "Closed")
 
+FINAL_MILESTONE_STATUSES = (
+    "Accepted",
+    "Payment Processing",
+    "Paid",
+    "Closed",
+)
+
+PROJECT_FIELDS = [
+    "project_id", "project_name", "contract_no", "consultant_name",
+    "contract_date", "project_start_date", "project_duration_days",
+    "project_end_date", "total_contract_value", "project_manager",
+    "status", "created_at", "updated_at",
+]
+
 
 # ============================================================
-# ★ v5: Helper — Effective Actual (คำนึงถึง status)
+# ★ v5: Effective Actual
 # ============================================================
 def _effective_actual(
     deliverable_id: str,
     status: str,
     prog_df: pd.DataFrame,
 ) -> float:
-    """
-    ★ v5: คำนวณ actual % ที่แท้จริง
-
-    Priority:
-    1. status = "Accepted" / "Closed" → return 100.0
-    2. progress_history มีข้อมูล → return latest actual_percent
-    3. ไม่มี → return 0.0
-    """
-    # ── Priority 1: Status final → 100% ──
+    """คำนวณ actual % — Priority: status → history → 0"""
     if status and str(status) in FINAL_STATUSES:
         return 100.0
 
-    # ── Priority 2: progress_history ──
     if prog_df is None or prog_df.empty:
         return 0.0
 
@@ -87,13 +95,9 @@ def _effective_actual(
 
 
 # ============================================================
-# ★ v6: SEQUENCE HELPERS
+# ★ v6: Sequence helpers
 # ============================================================
 def _get_sequence(row_or_dict) -> int:
-    """
-    ดึงค่า sequence จาก row
-    ถ้าไม่มี → parse จาก deliverable_id (DLV-M1-05 → 5)
-    """
     try:
         val = row_or_dict.get("sequence", None)
         if val is not None and not (isinstance(val, float) and pd.isna(val)):
@@ -101,7 +105,6 @@ def _get_sequence(row_or_dict) -> int:
     except Exception:
         pass
 
-    # Fallback: parse จาก deliverable_id
     try:
         did = str(row_or_dict.get("deliverable_id", ""))
         if did.startswith("DLV-"):
@@ -113,15 +116,10 @@ def _get_sequence(row_or_dict) -> int:
 
 
 def _sort_by_sequence(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    เรียงลำดับตาม: milestone_id → sequence → planned_start → deliverable_id
-    """
     if df.empty:
         return df
 
     work = df.copy()
-
-    # สร้าง _sequence ถ้ายังไม่มี
     if "_sequence" not in work.columns:
         if "sequence" in work.columns:
             work["_sequence"] = pd.to_numeric(
@@ -138,10 +136,10 @@ def _sort_by_sequence(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
-# ★ RESPONSIBLE UNITS (จาก Timeline — ID ใหม่ตาม Excel)
+# ★ RESPONSIBLE UNITS
 # ============================================================
 RESPONSIBLE_UNITS = {
-    # ═══ M1 — Inception Report (14 items) ═══
+    # M1 — Inception Report (14 items)
     "DLV-M1-01": "คณะกรรมการ",
     "DLV-M1-02": "คณะกรรมการ",
     "DLV-M1-03": "คณะกรรมการ",
@@ -157,7 +155,7 @@ RESPONSIBLE_UNITS = {
     "DLV-M1-13": "คณะกรรมการ",
     "DLV-M1-14": "คณะกรรมการ",
 
-    # ═══ M2 — Progress I Report (30 items) ═══
+    # M2 — Progress I Report (30 items)
     "DLV-M2-01": "-",
     "DLV-M2-02": "ฝพธ.",
     "DLV-M2-03": "สตส.",
@@ -189,7 +187,7 @@ RESPONSIBLE_UNITS = {
     "DLV-M2-29": "คณะกรรมการ",
     "DLV-M2-30": "คณะกรรมการ",
 
-    # ═══ M3 — Interim Report (20 items) ═══
+    # M3 — Interim Report (20 items)
     "DLV-M3-01": "ฝดท.1",
     "DLV-M3-02": "สตส.",
     "DLV-M3-03": "ฝดท.1",
@@ -211,7 +209,7 @@ RESPONSIBLE_UNITS = {
     "DLV-M3-19": "คณะกรรมการ",
     "DLV-M3-20": "คณะกรรมการ",
 
-    # ═══ M4 — Progress II Report (19 items) ═══
+    # M4 — Progress II Report (19 items)
     "DLV-M4-01": "คณะกรรมการ",
     "DLV-M4-02": "ฝดท.1",
     "DLV-M4-03": "ฝดท.1",
@@ -232,7 +230,7 @@ RESPONSIBLE_UNITS = {
     "DLV-M4-18": "คณะกรรมการ",
     "DLV-M4-19": "คณะกรรมการ",
 
-    # ═══ M5 — Final Report (12 items) ═══
+    # M5 — Final Report (12 items)
     "DLV-M5-01": "คณะกรรมการ",
     "DLV-M5-02": "ฝดท.1",
     "DLV-M5-03": "ฝทบ.",
@@ -247,7 +245,6 @@ RESPONSIBLE_UNITS = {
     "DLV-M5-12": "คณะกรรมการ",
 }
 
-# คำอธิบายตัวย่อหน่วยงาน
 UNIT_REFERENCE = {
     "คณะกรรมการ":                 "คณะกรรมการตรวจรับ / ที่ปรึกษาโครงการ",
     "10 หน่วยงานเกี่ยวข้อง":       "10 หน่วยงานภายใน กทพ. ที่เกี่ยวข้อง",
@@ -269,10 +266,9 @@ UNIT_REFERENCE = {
 
 
 # ============================================================
-# ★ WEIGHT NORMALIZER (ใช้สำหรับ S-Curve Plan)
+# ★ Weight normalizer
 # ============================================================
 def _normalize_to_100(values: list, target: float = 100.0) -> list:
-    """ปรับค่าใน list ให้ผลรวม = target พอดี"""
     if not values:
         return []
 
@@ -300,22 +296,22 @@ def _normalize_to_100(values: list, target: float = 100.0) -> list:
 
 
 # ============================================================
-# ★ S-CURVE PLAN DATA — Raw + Normalized
+# ★ S-Curve plan data
 # ============================================================
 _RAW_WEEKLY_PLAN_PCT = [
-    0.98, 2.17, 2.92, 3.53,   # ส.ค. 69 (W1-W4)
-    0.90, 0.50, 0.67, 0.89,   # ก.ย. 69
-    0.89, 1.69, 1.69, 2.12,   # ต.ค. 69
-    2.12, 2.32, 2.32, 2.15,   # พ.ย. 69
-    2.59, 3.34, 5.91, 3.91,   # ธ.ค. 69
-    3.41, 3.41, 3.16, 3.16,   # ม.ค. 70
-    4.48, 1.75, 1.69, 1.19,   # ก.พ. 70
-    1.19, 1.35, 1.35, 1.35,   # มี.ค. 70
-    1.60, 1.60, 1.60, 3.04,   # เม.ย. 70
-    1.54, 1.54, 1.46, 1.46,   # พ.ค. 70
-    1.78, 2.28, 1.54, 1.04,   # มิ.ย. 70
-    1.17, 1.17, 1.17, 2.83,   # ก.ค. 70
-    0.69, 1.39, 0.50, 0.00,   # ส.ค. 70
+    0.98, 2.17, 2.92, 3.53,
+    0.90, 0.50, 0.67, 0.89,
+    0.89, 1.69, 1.69, 2.12,
+    2.12, 2.32, 2.32, 2.15,
+    2.59, 3.34, 5.91, 3.91,
+    3.41, 3.41, 3.16, 3.16,
+    4.48, 1.75, 1.69, 1.19,
+    1.19, 1.35, 1.35, 1.35,
+    1.60, 1.60, 1.60, 3.04,
+    1.54, 1.54, 1.46, 1.46,
+    1.78, 2.28, 1.54, 1.04,
+    1.17, 1.17, 1.17, 2.83,
+    0.69, 1.39, 0.50, 0.00,
 ]
 
 WEEKLY_PLAN_PCT = _normalize_to_100(_RAW_WEEKLY_PLAN_PCT, target=100.0)
@@ -376,7 +372,6 @@ def _status_badge(status):
 
 
 def _load_csv(path: Path, key_col=None):
-    """อ่าน CSV แบบ safe"""
     try:
         if not path.exists():
             return pd.DataFrame()
@@ -386,21 +381,39 @@ def _load_csv(path: Path, key_col=None):
 
 
 # ============================================================
-# ★ v7: S-CURVE DATA (แผนสะสม vs จริงสะสม — จริงตามกำหนดเวลา)
+# ★ v8: Load project + milestone จาก DB (fallback CSV)
+# ============================================================
+def _load_project():
+    """★ v8: อ่าน project จาก DB ผ่าน MasterRepo"""
+    try:
+        df = MasterRepo("project_master.csv", PROJECT_FIELDS).read()
+        if not df.empty:
+            return df
+    except Exception:
+        pass
+    # Fallback: CSV
+    return _load_csv(DATA_DIR / "master" / "project_master.csv")
+
+
+def _load_milestones():
+    """★ v8: อ่าน milestone จาก DB ผ่าน MilestoneRepo"""
+    try:
+        df = MilestoneRepo().read()
+        if not df.empty:
+            return df
+    except Exception:
+        pass
+    # Fallback: CSV
+    return _load_csv(DATA_DIR / "master" / "milestone_master.csv")
+
+
+# ============================================================
+# ★ v7: S-Curve
 # ============================================================
 def _compute_scurve(proj, dl_df, prog_df, ms_df):
-    """
-    คำนวณ S-Curve: แผนสะสม vs จริงสะสม
-
-    ★ v7: เส้น Actual ขึ้นตามเวลาจริงของแต่ละ deliverable
-    - Accepted + cutoff >= planned_finish → นับ 100%
-    - Accepted + cutoff < planned_finish  → ยังไม่นับ (ใช้ progress_history)
-    - Not Started / In Progress            → ใช้ progress_history
-    """
     start_d = _to_date(proj["project_start_date"]) or date(2026, 8, 18)
     today = date.today()
 
-    # ---- 1. เตรียม data ----
     if dl_df is None or dl_df.empty:
         dl_filtered = pd.DataFrame()
     else:
@@ -432,7 +445,6 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
     ))
     total_weight = sum(dl_weight.values())
 
-    # ★ v7: planned_start + planned_finish maps
     dl_start = {}
     dl_finish = {}
     for _, d in dl_filtered.iterrows():
@@ -449,17 +461,13 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
         dl_filtered["status"].astype(str).fillna(""),
     ))
 
-    # ---- 2. Helper: คำนวณ actual สะสม ณ วันที่ ----
     def _actual_at(cutoff_date):
         if total_weight <= 0:
             return 0.0
 
         actual_map = {}
 
-        # ══════════════════════════════════════════════════════
-        # Priority 1: status = Accepted/Closed
-        # ★ v7: ต้องเช็ค planned_finish <= cutoff_date ก่อน
-        # ══════════════════════════════════════════════════════
+        # Priority 1: Accepted/Closed + planned_finish <= cutoff
         for did, status in status_map.items():
             if str(status) not in FINAL_STATUSES:
                 continue
@@ -467,21 +475,13 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
             finish_date = dl_finish.get(did)
 
             if finish_date and finish_date <= cutoff_date:
-                # planned_finish ผ่านมาแล้ว → นับ 100%
                 actual_map[did] = 100.0
-
             elif not finish_date:
-                # ไม่มี planned_finish → ใช้ planned_start เป็น fallback
                 start_date = dl_start.get(did)
                 if start_date and start_date <= cutoff_date:
                     actual_map[did] = 100.0
 
-            # else: cutoff < planned_finish → ยังไม่นับ
-            #       จะ fallthrough ไป Priority 2 ด้านล่าง
-
-        # ══════════════════════════════════════════════════════
-        # Priority 2: progress_history ที่ <= cutoff
-        # ══════════════════════════════════════════════════════
+        # Priority 2: progress_history <= cutoff
         if prog_df is not None and not prog_df.empty:
             prog = prog_df.copy()
             if "update_date" in prog.columns:
@@ -504,10 +504,8 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
                 )
                 for _, p in latest.iterrows():
                     did = str(p["deliverable_id"])
-                    # ถ้า status override แล้ว (Accepted+finish<=cutoff) → ข้าม
                     if did in actual_map:
                         continue
-
                     try:
                         actual_map[did] = float(
                             p.get("actual_percent", 0) or 0
@@ -515,11 +513,9 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
                     except Exception:
                         actual_map[did] = 0.0
 
-        # ── ถ้าไม่มีข้อมูลเลย ──
         if not actual_map:
             return 0.0
 
-        # ── คำนวณ weighted ──
         weighted = 0.0
         for did, a in actual_map.items():
             w = dl_weight.get(did, 0.0)
@@ -527,7 +523,6 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
 
         return round(weighted / total_weight, 2)
 
-    # ---- 3. สร้างแถวรายสัปดาห์ ----
     rows = []
     cum_plan = 0.0
     for i, w_pct in enumerate(WEEKLY_PLAN_PCT, 1):
@@ -549,12 +544,10 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
 
     df = pd.DataFrame(rows)
 
-    # ---- 4. คำนวณ actual สำหรับแต่ละสัปดาห์ ----
     for idx, row in df.iterrows():
         actual = _actual_at(row["date"])
         df.at[idx, "actual_cumulative"] = actual
 
-    # ---- 5. แทรกจุด "วันนี้" ----
     last_week_date = df["date"].iloc[-1]
 
     if start_d < today <= last_week_date:
@@ -591,6 +584,29 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
 
 
 # ============================================================
+# ★ v8: Helper — Milestone is complete (จาก ms.status หรือ acc_df)
+# ============================================================
+def _is_milestone_complete(mid, ms_status, acc_df):
+    """
+    ★ v8: เช็คว่า milestone เสร็จแล้วหรือยัง
+    เช็ค 2 ที่: (1) ms.status (2) acceptance history
+    """
+    # 1) เช็คจาก ms.status
+    if str(ms_status or "") in FINAL_MILESTONE_STATUSES:
+        return True
+
+    # 2) เช็คจาก acceptance history
+    if acc_df is not None and not acc_df.empty:
+        m_acc = acc_df[acc_df["milestone_id"] == mid]
+        if len(m_acc) > 0:
+            last_status = str(m_acc["status"].iloc[-1])
+            if last_status in FINAL_MILESTONE_STATUSES:
+                return True
+
+    return False
+
+
+# ============================================================
 # MAIN RENDER
 # ============================================================
 def render():
@@ -601,15 +617,16 @@ def render():
     today = date.today()
 
     # ============================================================
-    # LOAD DATA
+    # LOAD DATA — ★ v8: ใช้ DB เป็นหลัก
     # ============================================================
-    proj_df = _load_csv(DATA_DIR / "master" / "project_master.csv")
+    proj_df = _load_project()
     if proj_df.empty:
         st.error("⚠️ ไม่พบข้อมูลโครงการ — กรุณาตั้งค่าที่เมนู ⚙️ Project / Milestone")
         return
     proj = proj_df.iloc[0]
 
-    ms_df = _load_csv(DATA_DIR / "master" / "milestone_master.csv")
+    ms_df = _load_milestones()
+
     dl_df = DeliverableRepo().read()
     prog_df = ProgressRepo().read()
     acc_df = AcceptanceRepo().read()
@@ -619,7 +636,7 @@ def render():
     mtg_df = MeetingRepo().read()
     res_df = ResolutionRepo().read()
 
-    # ★ v6: เตรียม _sequence ใน dl_df ทันที
+    # ★ v6: เตรียม _sequence ใน dl_df
     if not dl_df.empty:
         if "sequence" in dl_df.columns:
             dl_df["_sequence"] = pd.to_numeric(
@@ -629,20 +646,18 @@ def render():
             dl_df["_sequence"] = dl_df.apply(_get_sequence, axis=1)
 
     # ============================================================
-    # ★ คำนวณ S-Curve + KPI ก่อน (ใช้ร่วมกันทั้งหน้า)
+    # คำนวณ S-Curve + KPI
     # ============================================================
     scurve_df = _compute_scurve(proj, dl_df, prog_df, ms_df)
 
     today_sc = date.today()
 
-    # ---- แผน ณ วันนี้ ----
     _plan_today_df = scurve_df[scurve_df["date"] <= today_sc]
     planned_pct = (
         float(_plan_today_df["plan_cumulative"].iloc[-1])
         if not _plan_today_df.empty else 0.0
     )
 
-    # ---- จริง ณ วันนี้ ----
     _actual_today_df = scurve_df[
         (scurve_df["date"] <= today_sc)
         & (scurve_df["actual_cumulative"].notna())
@@ -652,21 +667,17 @@ def render():
         if not _actual_today_df.empty else 0.0
     )
 
-    # ---- Overall ----
     overall = compute_overall_progress(proj["project_id"])
     actual_pct = overall["overall_progress"]
 
-    # ---- Variance ----
     variance = actual_pct - planned_pct
 
-    # ---- วัน ----
     start_d = _to_date(proj["project_start_date"])
     end_d = _to_date(proj["project_end_date"])
     total_days = max((end_d - start_d).days, 1) if start_d and end_d else 360
     days_elapsed = max((today - start_d).days, 0) if start_d else 0
     days_remaining = (end_d - today).days if end_d else 0
 
-    # ---- Health ----
     t = cfg["warning_thresholds"]
     if variance >= t["green_variance_pct"]:
         health_level = "GREEN"
@@ -799,6 +810,7 @@ def render():
 
     # ============================================================
     # SECTION 4 — MILESTONE TABLE
+    # ★ v8: ใช้ _is_milestone_complete() เช็คสถานะ
     # ============================================================
     st.markdown("---")
     st.markdown("### 📊 Milestone 1–5")
@@ -927,7 +939,6 @@ def render():
             ),
         ))
 
-    # --- เส้น "วันนี้" ---
     fig_s.add_shape(
         type="line",
         x0=today_sc, x1=today_sc,
@@ -946,7 +957,6 @@ def render():
         yshift=8,
     )
 
-    # --- Milestone markers ---
     if not ms_df.empty:
         for _, m in ms_df.iterrows():
             m_due = _to_date(m["due_date"])
@@ -955,7 +965,14 @@ def render():
             m_no = int(m["milestone_no"])
             pct = float(m.get("payment_percent", 0) or 0)
 
-            if m.get("status") in ("Accepted", "Payment Processing", "Paid", "Closed"):
+            # ★ v8: ใช้ _is_milestone_complete()
+            is_complete = _is_milestone_complete(
+                m["milestone_id"],
+                m.get("status"),
+                acc_df,
+            )
+
+            if is_complete:
                 m_color = "#2E7D32"
                 m_emoji = "✅"
             elif m_due < today_sc:
@@ -1080,7 +1097,6 @@ def render():
 
         dl_view = _sort_by_sequence(dl_view)
 
-        # ---- Filters ----
         c1, c2, c3 = st.columns([1, 1, 2])
         with c1:
             f_ms = st.multiselect(
@@ -1106,7 +1122,6 @@ def render():
                 key="dl_prog_search",
             )
 
-        # ---- Apply filters ----
         if f_ms:
             dl_view = dl_view[dl_view["milestone_id"].isin(f_ms)]
         if f_stat:
@@ -1124,7 +1139,6 @@ def render():
 
         dl_view = _sort_by_sequence(dl_view)
 
-        # ---- Build rows ----
         rows = []
         for i, (_, d) in enumerate(dl_view.iterrows(), 1):
             did = str(d["deliverable_id"])
@@ -1204,7 +1218,6 @@ def render():
                 hide_index=True,
             )
 
-        # ---- Bar Chart ----
         st.markdown("---")
         st.markdown("#### 📊 Weight vs Progress (เรียงตามลำดับงาน)")
 
@@ -1441,6 +1454,7 @@ def render():
 
     # ============================================================
     # SECTION 10 — EARLY WARNING SUMMARY
+    # ★ v8: เพิ่ม fallback — เช็ค acc_df ด้วย
     # ============================================================
     st.markdown("---")
     st.markdown("### 🚨 Early Warning Summary")
@@ -1448,6 +1462,12 @@ def render():
     warnings = []
     if not ms_df.empty:
         for _, m in ms_df.iterrows():
+            mid = m["milestone_id"]
+
+            # ★ v8: ถ้า milestone เสร็จแล้ว (จาก ms.status หรือ acc_df) → ข้าม
+            if _is_milestone_complete(mid, m.get("status"), acc_df):
+                continue
+
             w = check_milestone_warning(m.to_dict())
             if w != "GREEN":
                 dr = _days_between(today, m["due_date"])
@@ -1455,7 +1475,11 @@ def render():
                     "ระดับ":  _warn_icon(w) + " " + w,
                     "ประเภท": "Milestone",
                     "รายการ": f"M{m['milestone_no']} {m['milestone_name']}",
-                    "รายละเอียด": f"ครบกำหนดในอีก {dr} วัน" if dr and dr >= 0 else f"เกินกำหนด {-dr} วัน" if dr else "-",
+                    "รายละเอียด": (
+                        f"ครบกำหนดในอีก {dr} วัน" if dr and dr >= 0
+                        else f"เกินกำหนด {-dr} วัน" if dr
+                        else "-"
+                    ),
                 })
 
     if not res_df.empty:
@@ -1488,7 +1512,7 @@ def render():
         st.markdown("✅ **ไม่มีรายการที่ต้องเฝ้าระวัง** — ทุกอย่างเป็นไปตามแผน")
 
     # ============================================================
-    # ★ v7: FOOTER — ใช้ Bangkok timezone
+    # FOOTER — Bangkok timezone
     # ============================================================
     st.markdown("---")
     st.caption(
