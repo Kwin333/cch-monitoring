@@ -6,14 +6,20 @@
 - ★ KPI 4 ตัว: แผน ณ วันนี้ / จริง ณ วันนี้ / ส่วนต่าง / แผนรวม
 - ★ Section 5: ตาราง Deliverable เรียงตามลำดับงาน (M1 → M5)
 
+- 🐛 Fixed v7:
+  - ★ S-Curve: เส้น Actual ขึ้นตาม planned_finish จริง
+    * Accepted + cutoff >= planned_finish → 100%
+    * Accepted + cutoff < planned_finish  → ใช้ progress_history
+  - ★ Footer: ใช้ Bangkok timezone (now_str) แทน datetime.now() (UTC)
+  
 - 🐛 Fixed v6:
-  - ★ RESPONSIBLE_UNITS อัปเดตตาม ID ใหม่ (เรียงตาม Excel #)
-  - ★ DLV-M1-01..14, DLV-M2-01..30, DLV-M3-01..20, DLV-M4-01..19
-  - ★ เพิ่ม UNIT_REFERENCE "10 หน่วยงานเกี่ยวข้อง"
-  - ★ ใช้ sequence จาก DB ในการเรียง (fallback: parse จาก ID)
+  - RESPONSIBLE_UNITS อัปเดตตาม ID ใหม่ (เรียงตาม Excel #)
+  - DLV-M1-01..14, DLV-M2-01..30, DLV-M3-01..20, DLV-M4-01..19
+  - เพิ่ม UNIT_REFERENCE "10 หน่วยงานเกี่ยวข้อง"
+  - ใช้ sequence จาก DB ในการเรียง (fallback: parse จาก ID)
 
 - 🐛 Fixed v5:
-  - ★ Status = "Accepted" / "Closed" → actual = 100%
+  - Status = "Accepted" / "Closed" → actual = 100%
   - S-Curve, Milestone table, Deliverable table, Bar chart ทั้งหมดใช้ logic นี้
   - เพิ่ม helper `_effective_actual()` ใช้ร่วมกันทั้งหน้า
 - 🐛 Fixed v4: WEEKLY_PLAN_PCT normalize ให้ผลรวม = 100.00% พอดี
@@ -35,6 +41,7 @@ from repositories.issue_repo import IssueRepo
 from repositories.meeting_repo import MeetingRepo, ResolutionRepo
 from services.progress_service import compute_overall_progress, check_milestone_warning
 from config_loader import load_settings
+from core.time_util import now_str   # ★ v7: Bangkok timezone
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
@@ -135,111 +142,109 @@ def _sort_by_sequence(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 RESPONSIBLE_UNITS = {
     # ═══ M1 — Inception Report (14 items) ═══
-    "DLV-M1-01": "คณะกรรมการ",              # Contract Sign Off
-    "DLV-M1-02": "คณะกรรมการ",              # Kick-off Meeting
-    "DLV-M1-03": "คณะกรรมการ",              # Project Charter
-    "DLV-M1-04": "คณะกรรมการ",              # Project Timeline
-    "DLV-M1-05": "ฝทบ.",                    # Org Chart
-    "DLV-M1-06": "10 หน่วยงานเกี่ยวข้อง",    # Interview Overview
-    "DLV-M1-07": "ฝดท.1",                   # 1.11 Compliance Advisory
-    "DLV-M1-08": "ฝดท.1",                   # 1.12 Governance Review
-    "DLV-M1-09": "ฝพธ.",                    # 1.13 Business Assumptions
-    "DLV-M1-10": "ฝยป.",                    # 1.14 Monitoring Framework
-    "DLV-M1-11": "คณะกรรมการ",              # ส่ง(ร่าง) Inception
-    "DLV-M1-12": "คณะกรรมการ",              # ปรับปรุง Inception
-    "DLV-M1-13": "คณะกรรมการ",              # Submit Inception Report
-    "DLV-M1-14": "คณะกรรมการ",              # ประชุมตรวจรับ Inception
+    "DLV-M1-01": "คณะกรรมการ",
+    "DLV-M1-02": "คณะกรรมการ",
+    "DLV-M1-03": "คณะกรรมการ",
+    "DLV-M1-04": "คณะกรรมการ",
+    "DLV-M1-05": "ฝทบ.",
+    "DLV-M1-06": "10 หน่วยงานเกี่ยวข้อง",
+    "DLV-M1-07": "ฝดท.1",
+    "DLV-M1-08": "ฝดท.1",
+    "DLV-M1-09": "ฝพธ.",
+    "DLV-M1-10": "ฝยป.",
+    "DLV-M1-11": "คณะกรรมการ",
+    "DLV-M1-12": "คณะกรรมการ",
+    "DLV-M1-13": "คณะกรรมการ",
+    "DLV-M1-14": "คณะกรรมการ",
 
     # ═══ M2 — Progress I Report (30 items) ═══
-    # 1.6 Interview 10 Departments
-    "DLV-M2-01": "-",                       # 1.6 Overall
-    "DLV-M2-02": "ฝพธ.",                    # 1.6.1
-    "DLV-M2-03": "สตส.",                    # 1.6.2
-    "DLV-M2-04": "DPO",                     # 1.6.3
-    "DLV-M2-05": "ฝบร./กบร.",               # 1.6.4
-    "DLV-M2-06": "ฝกม.",                    # 1.6.5
-    "DLV-M2-07": "ฝกง.",                    # 1.6.6
-    "DLV-M2-08": "ฝทบ.",                    # 1.6.7
-    "DLV-M2-09": "ฝยป./กบค.",               # 1.6.8
-    "DLV-M2-10": "ฝดท.1",                   # 1.6.9
-    "DLV-M2-11": "ฝดท.2",                   # 1.6.10
-    # Monthly Reports + 2.x
-    "DLV-M2-12": "คณะกรรมการ",              # Monthly Report ต.ค.
-    "DLV-M2-13": "ฝดท.1",                   # 2.1 CCH Workflow
-    "DLV-M2-14": "ฝยป.",                    # 2.2 Risk Assessment
-    "DLV-M2-15": "ฝดท.1, ฝยป.",             # 2.3 SOPs
-    "DLV-M2-16": "ฝดท.1",                   # 2.4 Data Retention
-    "DLV-M2-17": "กกด.",                    # 2.5 Compliance Roadmap
-    "DLV-M2-18": "คณะกรรมการ",              # Monthly Report พ.ย.
-    "DLV-M2-19": "ฝดท.1",                   # 2.6 Source of Fund
-    "DLV-M2-20": "ฝยป.",                    # 2.7 E-Wallet Design
-    "DLV-M2-21": "คณะกรรมการ",              # 2.8 Workshops
-    "DLV-M2-22": "ฝทบ.",                    # 2.9 Org Structure Draft
-    "DLV-M2-23": "ฝกง., ฝพธ.",              # 2.10 Business Model
-    "DLV-M2-24": "ฝกง.",                    # 2.11 Daily Transaction
-    "DLV-M2-25": "ฝดท.1, ฝกม.",             # 2.12 PF License Package
-    "DLV-M2-26": "ฝดท.1",                   # 2.13 PF Submit BOT
-    "DLV-M2-27": "คณะกรรมการ",              # ส่ง(ร่าง) Progress I
-    "DLV-M2-28": "คณะกรรมการ",              # ปรับปรุง Progress I
-    "DLV-M2-29": "คณะกรรมการ",              # Submit Progress I
-    "DLV-M2-30": "คณะกรรมการ",              # ประชุมตรวจรับ Progress I
+    "DLV-M2-01": "-",
+    "DLV-M2-02": "ฝพธ.",
+    "DLV-M2-03": "สตส.",
+    "DLV-M2-04": "DPO",
+    "DLV-M2-05": "ฝบร./กบร.",
+    "DLV-M2-06": "ฝกม.",
+    "DLV-M2-07": "ฝกง.",
+    "DLV-M2-08": "ฝทบ.",
+    "DLV-M2-09": "ฝยป./กบค.",
+    "DLV-M2-10": "ฝดท.1",
+    "DLV-M2-11": "ฝดท.2",
+    "DLV-M2-12": "คณะกรรมการ",
+    "DLV-M2-13": "ฝดท.1",
+    "DLV-M2-14": "ฝยป.",
+    "DLV-M2-15": "ฝดท.1, ฝยป.",
+    "DLV-M2-16": "ฝดท.1",
+    "DLV-M2-17": "กกด.",
+    "DLV-M2-18": "คณะกรรมการ",
+    "DLV-M2-19": "ฝดท.1",
+    "DLV-M2-20": "ฝยป.",
+    "DLV-M2-21": "คณะกรรมการ",
+    "DLV-M2-22": "ฝทบ.",
+    "DLV-M2-23": "ฝกง., ฝพธ.",
+    "DLV-M2-24": "ฝกง.",
+    "DLV-M2-25": "ฝดท.1, ฝกม.",
+    "DLV-M2-26": "ฝดท.1",
+    "DLV-M2-27": "คณะกรรมการ",
+    "DLV-M2-28": "คณะกรรมการ",
+    "DLV-M2-29": "คณะกรรมการ",
+    "DLV-M2-30": "คณะกรรมการ",
 
     # ═══ M3 — Interim Report (20 items) ═══
-    "DLV-M3-01": "ฝดท.1",                   # 3.1 Workflow สมบูรณ์
-    "DLV-M3-02": "สตส.",                    # 3.2 Audit Trail
-    "DLV-M3-03": "ฝดท.1",                   # 3.3 Data Retention
-    "DLV-M3-04": "ฝดท.1",                   # 3.4 Regulatory Reporting
-    "DLV-M3-05": "คณะกรรมการ",              # Monthly Report ม.ค.
-    "DLV-M3-06": "ฝดท.1, ฝทบ.",             # 3.5 Org+Gov+Committee
-    "DLV-M3-07": "ฝพธ.",                    # 3.6 BM+Op+Risk
-    "DLV-M3-08": "ฝดท.1, ฝดท.2",            # 3.7 System Health
-    "DLV-M3-09": "ฝดท.1",                   # 3.8 Compliance Gap
-    "DLV-M3-10": "ฝยป.",                    # 3.9 Risk Strategy
-    "DLV-M3-11": "ฝกง.",                    # 3.10 Cost-Revenue
-    "DLV-M3-12": "ฝดท.1",                   # 3.11 Efficiency
-    "DLV-M3-13": "ฝกม.",                    # 3.12 Non-Toll Contract
-    "DLV-M3-14": "ฝกง., ฝดท.1",             # 3.13 Reporting Templates
-    "DLV-M3-15": "คณะกรรมการ",              # 3.14 Initial Year Monitoring
-    "DLV-M3-16": "ฝกม., ฝดท.1",             # 3.17 E-Money (เริ่ม)
-    "DLV-M3-17": "คณะกรรมการ",              # ส่ง(ร่าง) Interim
-    "DLV-M3-18": "คณะกรรมการ",              # ปรับปรุง Interim
-    "DLV-M3-19": "คณะกรรมการ",              # Submit Interim
-    "DLV-M3-20": "คณะกรรมการ",              # ประชุมตรวจรับ Interim
+    "DLV-M3-01": "ฝดท.1",
+    "DLV-M3-02": "สตส.",
+    "DLV-M3-03": "ฝดท.1",
+    "DLV-M3-04": "ฝดท.1",
+    "DLV-M3-05": "คณะกรรมการ",
+    "DLV-M3-06": "ฝดท.1, ฝทบ.",
+    "DLV-M3-07": "ฝพธ.",
+    "DLV-M3-08": "ฝดท.1, ฝดท.2",
+    "DLV-M3-09": "ฝดท.1",
+    "DLV-M3-10": "ฝยป.",
+    "DLV-M3-11": "ฝกง.",
+    "DLV-M3-12": "ฝดท.1",
+    "DLV-M3-13": "ฝกม.",
+    "DLV-M3-14": "ฝกง., ฝดท.1",
+    "DLV-M3-15": "คณะกรรมการ",
+    "DLV-M3-16": "ฝกม., ฝดท.1",
+    "DLV-M3-17": "คณะกรรมการ",
+    "DLV-M3-18": "คณะกรรมการ",
+    "DLV-M3-19": "คณะกรรมการ",
+    "DLV-M3-20": "คณะกรรมการ",
 
     # ═══ M4 — Progress II Report (19 items) ═══
-    "DLV-M4-01": "คณะกรรมการ",              # 4.1 Advisory Support
-    "DLV-M4-02": "ฝดท.1",                   # 4.2 Performance Monitoring
-    "DLV-M4-03": "ฝดท.1",                   # 4.3 Compliance Advisory
-    "DLV-M4-04": "คณะกรรมการ",              # Monthly Report มี.ค.
-    "DLV-M4-05": "ฝทบ.",                    # 4.4 Org Implementation
-    "DLV-M4-06": "ฝพธ.",                    # 4.5 Business Performance
-    "DLV-M4-07": "ฝดท.1, ฝดท.2",            # 4.6 Issue Escalation
-    "DLV-M4-08": "ฝกม., ฝดท.1",             # 4.7 License Documentation
-    "DLV-M4-09": "คณะกรรมการ",              # Monthly Report เม.ย.
-    "DLV-M4-10": "ฝกม., ฝดท.1",             # 4.8 AMLO Assessment
-    "DLV-M4-11": "คณะกรรมการ",              # 4.9 Training Program
-    "DLV-M4-12": "คณะกรรมการ",              # 4.10 จัดฝึกอบรม
-    "DLV-M4-13": "คณะกรรมการ",              # Monthly Report พ.ค.
-    "DLV-M4-14": "ฝดท.1",                   # 4.11 EM Complete
-    "DLV-M4-15": "ฝดท.1",                   # 4.12 EM Submit
-    "DLV-M4-16": "คณะกรรมการ",              # ส่ง(ร่าง) Progress II
-    "DLV-M4-17": "คณะกรรมการ",              # ปรับปรุง Progress II
-    "DLV-M4-18": "คณะกรรมการ",              # Submit Progress II
-    "DLV-M4-19": "คณะกรรมการ",              # ประชุมตรวจรับ Progress II
+    "DLV-M4-01": "คณะกรรมการ",
+    "DLV-M4-02": "ฝดท.1",
+    "DLV-M4-03": "ฝดท.1",
+    "DLV-M4-04": "คณะกรรมการ",
+    "DLV-M4-05": "ฝทบ.",
+    "DLV-M4-06": "ฝพธ.",
+    "DLV-M4-07": "ฝดท.1, ฝดท.2",
+    "DLV-M4-08": "ฝกม., ฝดท.1",
+    "DLV-M4-09": "คณะกรรมการ",
+    "DLV-M4-10": "ฝกม., ฝดท.1",
+    "DLV-M4-11": "คณะกรรมการ",
+    "DLV-M4-12": "คณะกรรมการ",
+    "DLV-M4-13": "คณะกรรมการ",
+    "DLV-M4-14": "ฝดท.1",
+    "DLV-M4-15": "ฝดท.1",
+    "DLV-M4-16": "คณะกรรมการ",
+    "DLV-M4-17": "คณะกรรมการ",
+    "DLV-M4-18": "คณะกรรมการ",
+    "DLV-M4-19": "คณะกรรมการ",
 
-    # ═══ M5 — Final Report (12 items — ไม่เปลี่ยน) ═══
-    "DLV-M5-01": "คณะกรรมการ",              # 5.1 Advisory Support
-    "DLV-M5-02": "ฝดท.1",                   # 5.2 WP 4.1 Package
-    "DLV-M5-03": "ฝทบ.",                    # 5.3 WP 4.2 Package
-    "DLV-M5-04": "ฝกง.",                    # 5.4 WP 4.3 Package
-    "DLV-M5-05": "ฝดท.1, ฝดท.2",            # 5.5 WP 4.4 Package
-    "DLV-M5-06": "ฝดท.1, ฝกม.",             # 5.6 WP 4.5 Package
-    "DLV-M5-07": "คณะกรรมการ",              # 5.7 Training Report
-    "DLV-M5-08": "คณะกรรมการ",              # 5.9 Closure Report
-    "DLV-M5-09": "คณะกรรมการ",              # ส่ง(ร่าง) Final
-    "DLV-M5-10": "คณะกรรมการ",              # ปรับปรุง Final
-    "DLV-M5-11": "คณะกรรมการ",              # Submit Final Report
-    "DLV-M5-12": "คณะกรรมการ",              # ประชุมตรวจรับ Final
+    # ═══ M5 — Final Report (12 items) ═══
+    "DLV-M5-01": "คณะกรรมการ",
+    "DLV-M5-02": "ฝดท.1",
+    "DLV-M5-03": "ฝทบ.",
+    "DLV-M5-04": "ฝกง.",
+    "DLV-M5-05": "ฝดท.1, ฝดท.2",
+    "DLV-M5-06": "ฝดท.1, ฝกม.",
+    "DLV-M5-07": "คณะกรรมการ",
+    "DLV-M5-08": "คณะกรรมการ",
+    "DLV-M5-09": "คณะกรรมการ",
+    "DLV-M5-10": "คณะกรรมการ",
+    "DLV-M5-11": "คณะกรรมการ",
+    "DLV-M5-12": "คณะกรรมการ",
 }
 
 # คำอธิบายตัวย่อหน่วยงาน
@@ -381,17 +386,21 @@ def _load_csv(path: Path, key_col=None):
 
 
 # ============================================================
-# ★ S-CURVE DATA (แผนสะสม vs จริงสะสม)
+# ★ v7: S-CURVE DATA (แผนสะสม vs จริงสะสม — จริงตามกำหนดเวลา)
 # ============================================================
 def _compute_scurve(proj, dl_df, prog_df, ms_df):
     """
     คำนวณ S-Curve: แผนสะสม vs จริงสะสม
-    ★ v5: ใช้ _effective_actual() ที่คำนึงถึง status = Accepted → 100%
+
+    ★ v7: เส้น Actual ขึ้นตามเวลาจริงของแต่ละ deliverable
+    - Accepted + cutoff >= planned_finish → นับ 100%
+    - Accepted + cutoff < planned_finish  → ยังไม่นับ (ใช้ progress_history)
+    - Not Started / In Progress            → ใช้ progress_history
     """
     start_d = _to_date(proj["project_start_date"]) or date(2026, 8, 18)
     today = date.today()
 
-    # ---- 1. เตรียม weight map + status map ----
+    # ---- 1. เตรียม data ----
     if dl_df is None or dl_df.empty:
         dl_filtered = pd.DataFrame()
     else:
@@ -423,7 +432,18 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
     ))
     total_weight = sum(dl_weight.values())
 
-    # ★ v5: status map สำหรับ override
+    # ★ v7: planned_start + planned_finish maps
+    dl_start = {}
+    dl_finish = {}
+    for _, d in dl_filtered.iterrows():
+        did = str(d["deliverable_id"])
+        ps = _to_date(d.get("planned_start"))
+        pf = _to_date(d.get("planned_finish"))
+        if ps:
+            dl_start[did] = ps
+        if pf:
+            dl_finish[did] = pf
+
     status_map = dict(zip(
         dl_filtered["deliverable_id"].astype(str),
         dl_filtered["status"].astype(str).fillna(""),
@@ -434,21 +454,44 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
         if total_weight <= 0:
             return 0.0
 
-        # ★ v5: สร้าง actual_map เริ่มจาก status_map ก่อน
         actual_map = {}
 
-        # Priority 1: status = Accepted/Closed → 100%
+        # ══════════════════════════════════════════════════════
+        # Priority 1: status = Accepted/Closed
+        # ★ v7: ต้องเช็ค planned_finish <= cutoff_date ก่อน
+        # ══════════════════════════════════════════════════════
         for did, status in status_map.items():
-            if str(status) in FINAL_STATUSES:
+            if str(status) not in FINAL_STATUSES:
+                continue
+
+            finish_date = dl_finish.get(did)
+
+            if finish_date and finish_date <= cutoff_date:
+                # planned_finish ผ่านมาแล้ว → นับ 100%
                 actual_map[did] = 100.0
 
+            elif not finish_date:
+                # ไม่มี planned_finish → ใช้ planned_start เป็น fallback
+                start_date = dl_start.get(did)
+                if start_date and start_date <= cutoff_date:
+                    actual_map[did] = 100.0
+
+            # else: cutoff < planned_finish → ยังไม่นับ
+            #       จะ fallthrough ไป Priority 2 ด้านล่าง
+
+        # ══════════════════════════════════════════════════════
         # Priority 2: progress_history ที่ <= cutoff
+        # ══════════════════════════════════════════════════════
         if prog_df is not None and not prog_df.empty:
             prog = prog_df.copy()
             if "update_date" in prog.columns:
-                prog["_date"] = pd.to_datetime(prog["update_date"], errors="coerce").dt.date
+                prog["_date"] = pd.to_datetime(
+                    prog["update_date"], errors="coerce"
+                ).dt.date
             else:
-                prog["_date"] = pd.to_datetime(prog["timestamp"], errors="coerce").dt.date
+                prog["_date"] = pd.to_datetime(
+                    prog["timestamp"], errors="coerce"
+                ).dt.date
 
             prog = prog.dropna(subset=["_date"])
             sub = prog[prog["_date"] <= cutoff_date]
@@ -461,12 +504,16 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
                 )
                 for _, p in latest.iterrows():
                     did = str(p["deliverable_id"])
-                    # ★ เฉพาะที่ยังไม่มีใน actual_map (status override อยู่แล้ว)
-                    if did not in actual_map:
-                        try:
-                            actual_map[did] = float(p.get("actual_percent", 0) or 0)
-                        except Exception:
-                            actual_map[did] = 0.0
+                    # ถ้า status override แล้ว (Accepted+finish<=cutoff) → ข้าม
+                    if did in actual_map:
+                        continue
+
+                    try:
+                        actual_map[did] = float(
+                            p.get("actual_percent", 0) or 0
+                        )
+                    except Exception:
+                        actual_map[did] = 0.0
 
         # ── ถ้าไม่มีข้อมูลเลย ──
         if not actual_map:
@@ -752,7 +799,6 @@ def render():
 
     # ============================================================
     # SECTION 4 — MILESTONE TABLE
-    # ★ v5: ใช้ _effective_actual() ที่คำนึงถึง status
     # ============================================================
     st.markdown("---")
     st.markdown("### 📊 Milestone 1–5")
@@ -771,7 +817,6 @@ def render():
                 weighted = 0
                 for _, d in m_dl.iterrows():
                     w = float(d.get("weight", 0) or 0)
-                    # ★ v5: ใช้ _effective_actual
                     latest = _effective_actual(
                         str(d["deliverable_id"]),
                         str(d.get("status", "") or ""),
@@ -812,7 +857,7 @@ def render():
     st.markdown("### 📈 S-Curve: แผนสะสม vs จริงสะสม")
     st.caption(
         "เปรียบเทียบแผนสะสมตาม TOR กับผลงานจริงสะสม — "
-        "คำนวณจาก progress snapshots ถ่วงน้ำหนักตาม deliverable weight"
+        "เส้น Actual ขึ้นตามวันที่ planned_finish จริงของแต่ละ deliverable"
     )
 
     plan_today = planned_pct
@@ -1018,7 +1063,6 @@ def render():
 
     # ============================================================
     # SECTION 5 — DELIVERABLE PROGRESS TABLE
-    # ★ v6: ใช้ _sort_by_sequence() เรียงตาม Excel
     # ============================================================
     st.markdown("---")
     st.markdown("### 📈 ความคืบหน้าแต่ละ Deliverable")
@@ -1034,7 +1078,6 @@ def render():
             dl_view["milestone_id"].astype(str).str.startswith("MLS")
         ].copy()
 
-        # ★ v6: เรียงตาม sequence
         dl_view = _sort_by_sequence(dl_view)
 
         # ---- Filters ----
@@ -1079,7 +1122,6 @@ def render():
                 )
             ]
 
-        # ★ v6: re-sort หลัง filter
         dl_view = _sort_by_sequence(dl_view)
 
         # ---- Build rows ----
@@ -1087,7 +1129,6 @@ def render():
         for i, (_, d) in enumerate(dl_view.iterrows(), 1):
             did = str(d["deliverable_id"])
 
-            # ★ v5: ใช้ _effective_actual
             actual = _effective_actual(
                 did,
                 str(d.get("status", "") or ""),
@@ -1164,7 +1205,6 @@ def render():
             )
 
         # ---- Bar Chart ----
-        # ★ v6: ใช้ sequence ใน sort_key
         st.markdown("---")
         st.markdown("#### 📊 Weight vs Progress (เรียงตามลำดับงาน)")
 
@@ -1172,13 +1212,11 @@ def render():
             chart_rows = []
             for _, d in dl_view.iterrows():
                 did = d["deliverable_id"]
-                # ★ v5: effective actual
                 actual = _effective_actual(
                     str(did),
                     str(d.get("status", "") or ""),
                     prog_df,
                 )
-                # ★ v6: sort_key ใช้ sequence
                 seq = int(d.get("_sequence", 9999))
                 chart_rows.append({
                     "sort_key": f"{d['milestone_id']}|{seq:04d}|{did}",
@@ -1450,7 +1488,10 @@ def render():
         st.markdown("✅ **ไม่มีรายการที่ต้องเฝ้าระวัง** — ทุกอย่างเป็นไปตามแผน")
 
     # ============================================================
-    # FOOTER
+    # ★ v7: FOOTER — ใช้ Bangkok timezone
     # ============================================================
     st.markdown("---")
-    st.caption(f"🕒 ข้อมูล ณ วันที่ {today.strftime('%d/%m/%Y')} · อัปเดตล่าสุด: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(
+        f"🕒 ข้อมูล ณ วันที่ {today.strftime('%d/%m/%Y')} · "
+        f"อัปเดตล่าสุด: {now_str()}"
+    )
