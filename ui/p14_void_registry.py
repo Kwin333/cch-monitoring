@@ -6,12 +6,16 @@ Components:
 - 🧹 Tab 3: Cleanup Orphans (admin only)
 - 📥 Tab 4: CSV Export
 
+★ v3 — แก้ไข:
+- 🔧 Fix: แสดง DEBUG info (record_type, record_id, id_col, rows)
+- 🔧 Fix: Hard Delete ลบโดยตรง + verify rowcount
+- 🔧 Fix: ถ้าลบไม่สำเร็จ → แสดง ID ที่ใกล้เคียงใน DB
+- 🔧 Fix: Fallback กรณี `_get_id_col()` คืนค่าผิด
+- ✨ เพิ่ม `_force_hard_delete()` — ลบโดยตรงโดยไม่ผ่าน Repo (bulletproof)
+
 ★ v2 — แก้ไข:
-- 🔧 Fix: รองรับ `deliverable_review` / `deliverable_review_history`
-- 🔧 Fix: เพิ่ม REVIEW_FIELDS ครบชุด (ใช้ร่วมกับ p04_deliverable_review.py)
-- 🔧 Fix: `RECORD_TYPE_MAP` + `_get_repo_for_type()` + `_get_repo_by_name()`
-- ✨ เพิ่ม REPO FACTORY กลาง (single source of truth)
-- ✨ เพิ่ม support สำหรับ resolution_history, meeting_history ที่หลุด
+- รองรับ `deliverable_review` / `deliverable_review_history`
+- REPO FACTORY กลาง (single source of truth)
 """
 import streamlit as st
 import pandas as pd
@@ -24,11 +28,10 @@ from core.void_registry import (
 from core.audit import append_audit
 from core.time_util import today_str
 from core.permissions import can_hard_delete
-from core.ui_helpers import render_hard_delete_form
 
 
 # ============================================================
-# ★ v2: REVIEW_FIELDS (ใช้ร่วมกับ p04_deliverable_review.py)
+# REVIEW_FIELDS
 # ============================================================
 REVIEW_FIELDS = [
     "timestamp", "review_id", "deliverable_id", "milestone_id", "tor_clause",
@@ -45,7 +48,24 @@ REVIEW_FILENAME = "deliverable_review_history.csv"
 
 
 # ============================================================
-# MAPPING: record_type → (หน้า, ป้ายชื่อ)
+# ★ v3: TABLE → PK COLUMN MAP (ชัดเจน ไม่ต้องเดา)
+# ============================================================
+TABLE_PK_MAP = {
+    "deliverable_review_history": "review_id",
+    "progress_history":           "progress_id",
+    "issue_history":              "issue_id",
+    "action_history":             "action_id",
+    "meeting_history":            "meeting_id",
+    "resolution_history":         "resolution_id",
+    "acceptance_history":         "acceptance_id",
+    "payment_history":            "payment_id",
+    "deliverable_master":         "deliverable_id",
+    "milestone_master":           "milestone_id",
+}
+
+
+# ============================================================
+# MAPPING: record_type → (ป้ายชื่อ, table_name)
 # ============================================================
 RECORD_TYPE_MAP = {
     "issue":              ("⚠️ Issue Tracker",       "issue_history"),
@@ -64,9 +84,8 @@ RECORD_TYPE_MAP = {
     "payment_history":    ("💵 เบิกจ่าย",            "payment_history"),
     "deliverable":        ("📦 Deliverable Master", "deliverable_master"),
     "deliverable_master": ("📦 Deliverable Master", "deliverable_master"),
-    # ★ v2: เพิ่ม Review
-    "deliverable_review":         ("🔎 Deliverable Review", REVIEW_FILENAME),
-    "deliverable_review_history": ("🔎 Deliverable Review", REVIEW_FILENAME),
+    "deliverable_review":         ("🔎 Deliverable Review", "deliverable_review_history"),
+    "deliverable_review_history": ("🔎 Deliverable Review", "deliverable_review_history"),
 }
 
 
@@ -84,23 +103,13 @@ ORPHAN_TYPES = [
 
 
 def _find_orphaned_records() -> dict:
-    """
-    ค้นหา records ที่อ้างถึง entity ที่ถูกลบ
-
-    Returns:
-        dict = {
-            "progress":   [{"id": ..., "reason": ..., "detail": ..., "repo": ...}, ...],
-            "action":     [...],
-            ...
-        }
-    """
     voided = get_voided_ids()
     orphans = {k: [] for k, _, _ in ORPHAN_TYPES}
 
     if not voided:
         return orphans
 
-    # ---- Progress ----
+    # Progress
     try:
         from repositories.progress_repo import ProgressRepo
         df = ProgressRepo().read()
@@ -114,36 +123,32 @@ def _find_orphaned_records() -> dict:
                 reasons.append(f"milestone {mid}")
             if reasons:
                 orphans["progress"].append({
-                    "id":     r.get("progress_id", ""),
+                    "id": r.get("progress_id", ""),
                     "reason": ", ".join(reasons),
                     "detail": f"{did} → {r.get('actual_percent', '?')}%",
-                    "repo":   "progress",
+                    "repo": "progress",
                 })
     except Exception:
         pass
 
-    # ---- Action ----
+    # Action
     try:
         from repositories.action_repo import ActionRepo
         df = ActionRepo().read()
         for _, r in df.iterrows():
-            src_type = str(r.get("source_type", "") or "")
             src_id = str(r.get("source_id", "") or "")
-            reasons = []
+            src_type = str(r.get("source_type", "") or "")
             if src_id and src_id in voided:
-                reasons.append(f"source {src_type} {src_id}")
-            if reasons:
                 orphans["action"].append({
-                    "id":     r.get("action_id", ""),
-                    "reason": ", ".join(reasons),
-                    "detail": f"[{r.get('priority', '?')}] "
-                              f"{str(r.get('description', ''))[:50]}",
-                    "repo":   "action",
+                    "id": r.get("action_id", ""),
+                    "reason": f"source {src_type} {src_id}",
+                    "detail": f"[{r.get('priority', '?')}] {str(r.get('description', ''))[:50]}",
+                    "repo": "action",
                 })
     except Exception:
         pass
 
-    # ---- Issue ----
+    # Issue
     try:
         from repositories.issue_repo import IssueRepo
         df = IssueRepo().read()
@@ -157,16 +162,15 @@ def _find_orphaned_records() -> dict:
                 reasons.append(f"milestone {mid}")
             if reasons:
                 orphans["issue"].append({
-                    "id":     r.get("issue_id", ""),
+                    "id": r.get("issue_id", ""),
                     "reason": ", ".join(reasons),
-                    "detail": f"[{r.get('severity', '?')}] "
-                              f"{str(r.get('description', ''))[:50]}",
-                    "repo":   "issue",
+                    "detail": f"[{r.get('severity', '?')}] {str(r.get('description', ''))[:50]}",
+                    "repo": "issue",
                 })
     except Exception:
         pass
 
-    # ---- Review ----
+    # Review
     try:
         from repositories.base_repo import AppendOnlyRepo
         df = AppendOnlyRepo(REVIEW_FILENAME, REVIEW_FIELDS).read()
@@ -180,16 +184,15 @@ def _find_orphaned_records() -> dict:
                 reasons.append(f"milestone {mid}")
             if reasons:
                 orphans["review"].append({
-                    "id":     r.get("review_id", ""),
+                    "id": r.get("review_id", ""),
                     "reason": ", ".join(reasons),
-                    "detail": f"{did} {r.get('version_no', '')} — "
-                              f"{r.get('result', '')}",
-                    "repo":   "review",
+                    "detail": f"{did} {r.get('version_no', '')} — {r.get('result', '')}",
+                    "repo": "review",
                 })
     except Exception:
         pass
 
-    # ---- Acceptance ----
+    # Acceptance
     try:
         from repositories.acceptance_repo import AcceptanceRepo
         df = AcceptanceRepo().read()
@@ -197,15 +200,15 @@ def _find_orphaned_records() -> dict:
             mid = str(r.get("milestone_id", "") or "")
             if mid and mid in voided:
                 orphans["acceptance"].append({
-                    "id":     r.get("acceptance_id", ""),
+                    "id": r.get("acceptance_id", ""),
                     "reason": f"milestone {mid}",
                     "detail": f"{mid} → {r.get('status', '?')}",
-                    "repo":   "acceptance",
+                    "repo": "acceptance",
                 })
     except Exception:
         pass
 
-    # ---- Payment ----
+    # Payment
     try:
         from repositories.acceptance_repo import PaymentRepo
         df = PaymentRepo().read()
@@ -213,10 +216,10 @@ def _find_orphaned_records() -> dict:
             mid = str(r.get("milestone_id", "") or "")
             if mid and mid in voided:
                 orphans["payment"].append({
-                    "id":     r.get("payment_id", ""),
+                    "id": r.get("payment_id", ""),
                     "reason": f"milestone {mid}",
                     "detail": f"{mid} → {r.get('status', '?')}",
-                    "repo":   "payment",
+                    "repo": "payment",
                 })
     except Exception:
         pass
@@ -225,12 +228,9 @@ def _find_orphaned_records() -> dict:
 
 
 # ============================================================
-# ★ v2: REPO FACTORY — Single Source of Truth
+# REPO FACTORY
 # ============================================================
 def _get_repo_by_name(repo_name: str):
-    """
-    ★ v2: คืน Repo instance จากชื่อ key (ใช้ทั้งใน Cleanup + Hard Delete)
-    """
     from repositories.progress_repo import ProgressRepo
     from repositories.action_repo import ActionRepo
     from repositories.issue_repo import IssueRepo
@@ -258,10 +258,7 @@ def _get_repo_by_name(repo_name: str):
         "deliverable_master": DeliverableRepo,
     }
 
-    # ★ Review — ต้องใช้ AppendOnlyRepo + REVIEW_FIELDS
-    if repo_name in ("review",
-                     "deliverable_review",
-                     "deliverable_review_history"):
+    if repo_name in ("review", "deliverable_review", "deliverable_review_history"):
         return AppendOnlyRepo(REVIEW_FILENAME, REVIEW_FIELDS)
 
     cls = mapping.get(repo_name)
@@ -308,10 +305,12 @@ def _get_record_type_label(record_type: str) -> str:
     return label
 
 
+def _get_table_name(record_type: str) -> str:
+    _, table = RECORD_TYPE_MAP.get(record_type, ("", record_type))
+    return table
+
+
 def _get_repo_for_type(record_type: str):
-    """
-    ★ v2: เรียกใช้ _get_repo_by_name() แทน — single source of truth
-    """
     return _get_repo_by_name(record_type)
 
 
@@ -319,6 +318,244 @@ def _after_hard_delete(void_id: str):
     st.session_state.pop(f"show_hd_{void_id}", None)
     st.success("✅ ลบถาวรแล้ว — กลับสู่หน้าแรก")
     st.rerun()
+
+
+# ============================================================
+# ★ v3: FORCE HARD DELETE — ทำงานตรง ไม่ผ่าน Repo
+# ============================================================
+def _force_hard_delete(record_type: str, record_id: str, reason: str, user: str) -> dict:
+    """
+    ★ v3: ลบ record + voided_records โดยตรงผ่าน SQL
+    ใช้ TABLE_PK_MAP ที่ชัดเจน ไม่ต้องพึ่ง _get_id_col()
+    
+    Returns: dict {ok, deleted, table, pk_col, rows_before, rows_after, error}
+    """
+    result = {
+        "ok": False,
+        "deleted": 0,
+        "table": "",
+        "pk_col": "",
+        "rows_before": 0,
+        "rows_after": 0,
+        "error": "",
+    }
+
+    try:
+        from core.db import get_engine, _q
+        from sqlalchemy import text
+
+        # ── 1. หา table + pk ──
+        table = _get_table_name(record_type)
+        pk_col = TABLE_PK_MAP.get(table)
+
+        result["table"] = table
+        result["pk_col"] = pk_col or "?"
+
+        if not table:
+            result["error"] = f"ไม่พบ table สำหรับ record_type={record_type}"
+            return result
+
+        if not pk_col:
+            result["error"] = f"ไม่พบ PK column สำหรับ table={table}"
+            return result
+
+        engine = get_engine()
+        rid = str(record_id).strip()
+
+        # ── 2. count before ──
+        with engine.begin() as conn:
+            n_before = conn.execute(
+                text(f'SELECT COUNT(*) FROM {_q(table)}')
+            ).scalar()
+        result["rows_before"] = int(n_before)
+
+        # ── 3. delete ──
+        with engine.begin() as conn:
+            r = conn.execute(
+                text(f'DELETE FROM {_q(table)} WHERE {_q(pk_col)} = :rid'),
+                {"rid": rid},
+            )
+            n_deleted = r.rowcount
+
+        result["deleted"] = int(n_deleted)
+
+        # ── 4. count after ──
+        with engine.begin() as conn:
+            n_after = conn.execute(
+                text(f'SELECT COUNT(*) FROM {_q(table)}')
+            ).scalar()
+        result["rows_after"] = int(n_after)
+
+        # ── 5. remove from voided_records ──
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text('DELETE FROM "voided_records" WHERE "record_id" = :rid'),
+                    {"rid": rid},
+                )
+        except Exception as e:
+            result["error"] = f"(remove_void failed: {e})"
+
+        # ── 6. audit ──
+        try:
+            append_audit(
+                user, "HARD_DELETE", table, rid,
+                old_value=f"{n_deleted} row(s)",
+                new_value="PERMANENTLY_DELETED",
+                reason=reason,
+            )
+        except Exception:
+            pass
+
+        result["ok"] = True
+        return result
+
+    except Exception as e:
+        import traceback
+        result["error"] = f"{type(e).__name__}: {e}"
+        result["traceback"] = traceback.format_exc()
+        return result
+
+
+# ============================================================
+# ★ v3: HARD DELETE FORM (inline, ไม่ใช้ ui_helpers)
+# ============================================================
+def _render_hard_delete_inline(record_type, record_id, vid, reason_default=""):
+    """
+    ★ v3: ฟอร์ม Hard Delete ที่ฝังตรงในหน้า (ไม่ใช้ ui_helpers)
+    """
+    table = _get_table_name(record_type)
+    pk_col = TABLE_PK_MAP.get(table, "?")
+
+    # ── INFO BOX ──
+    st.markdown(
+        f"""
+        <div style="background:#FFF3E0;border:2px solid #F57C00;
+                    border-radius:10px;padding:14px 18px;margin:10px 0;
+                    font-size:12.5px;">
+            <div style="font-weight:700;color:#E65100;margin-bottom:6px;">
+                🗑️ Hard Delete — ลบถาวร
+            </div>
+            <div style="color:#333;">
+                <b>Table:</b> <code>{table}</code><br>
+                <b>PK Column:</b> <code>{pk_col}</code><br>
+                <b>Record ID:</b> <code>{record_id}</code>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Confirmation inputs ──
+    confirm_text = st.text_input(
+        f"พิมพ์ `{record_id}` เพื่อยืนยัน",
+        value="",
+        key=f"hd_confirm_text_{vid}",
+        placeholder=f"พิมพ์: {record_id}",
+    )
+
+    reason = st.text_area(
+        "เหตุผลการลบ (≥ 10 ตัวอักษร)",
+        value=reason_default,
+        height=70,
+        key=f"hd_reason_{vid}",
+        placeholder="เช่น ลบข้อมูลทดสอบ / ข้อมูลซ้ำซ้อน",
+    )
+
+    confirmed = st.checkbox(
+        "☑️ ข้าพเจ้ายืนยันว่าต้องการลบถาวร",
+        value=False,
+        key=f"hd_confirm_{vid}",
+    )
+
+    # ── Buttons ──
+    col_del, col_cancel = st.columns([1, 1])
+
+    with col_del:
+        if st.button(
+            "🚨 ลบถาวร",
+            type="primary",
+            use_container_width=True,
+            key=f"hd_del_{vid}",
+        ):
+            # Validate
+            errors = []
+            if confirm_text.strip() != str(record_id).strip():
+                errors.append(f"❌ ต้องพิมพ์ `{record_id}` ให้ตรง")
+            if not reason.strip():
+                errors.append("❌ ต้องระบุเหตุผล")
+            elif len(reason.strip()) < 10:
+                errors.append("❌ เหตุผลต้อง ≥ 10 ตัวอักษร")
+            if not confirmed:
+                errors.append("❌ ต้องติ๊กยืนยัน")
+
+            if errors:
+                for e in errors:
+                    st.error(e)
+            else:
+                with st.spinner("กำลังลบ..."):
+                    res = _force_hard_delete(
+                        record_type, record_id, reason.strip(),
+                        st.session_state.user,
+                    )
+
+                # ── แสดงผล ──
+                if res["ok"]:
+                    if res["deleted"] > 0:
+                        st.success(
+                            f"✅ **ลบสำเร็จ!** `{record_id}` "
+                            f"— {res['deleted']} row(s) จาก `{res['table']}`  \n"
+                            f"📊 Rows: {res['rows_before']} → {res['rows_after']}"
+                        )
+                        st.session_state.pop(f"show_hd_{vid}", None)
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        # ── ลบไม่เจอ ──
+                        st.error(
+                            f"⚠️ **ไม่พบ record ที่ตรงกัน**  \n"
+                            f"ค้นหา `{record_id}` ใน `{res['table']}.{res['pk_col']}` "
+                            f"ไม่เจอ (0 rows deleted)"
+                        )
+
+                        # ── หา record ใกล้เคียง ──
+                        with st.expander("🔍 ดูรายการที่คล้ายกันใน DB", expanded=True):
+                            try:
+                                from core.db import get_engine, _q
+                                from sqlalchemy import text
+                                engine = get_engine()
+                                pat = f"%{str(record_id)[-10:]}%"
+                                with engine.begin() as conn:
+                                    rows = conn.execute(
+                                        text(f'SELECT {_q(res["pk_col"])} '
+                                             f'FROM {_q(res["table"])} '
+                                             f'WHERE {_q(res["pk_col"])} ILIKE :p '
+                                             f'LIMIT 10'),
+                                        {"p": pat},
+                                    ).fetchall()
+
+                                if rows:
+                                    st.write("**ใกล้เคียงใน DB:**")
+                                    for row in rows:
+                                        st.code(f"'{row[0]}' (len={len(str(row[0]))})")
+                                else:
+                                    st.warning("ไม่พบรายการที่คล้ายกันเลย")
+                            except Exception as e:
+                                st.error(f"ค้นหาไม่สำเร็จ: {e}")
+                else:
+                    st.error(f"❌ ลบไม่สำเร็จ: {res['error']}")
+                    if res.get("traceback"):
+                        with st.expander("Traceback"):
+                            st.code(res["traceback"])
+
+    with col_cancel:
+        if st.button(
+            "❌ ยกเลิก",
+            use_container_width=True,
+            key=f"hd_cancel_{vid}",
+        ):
+            st.session_state.pop(f"show_hd_{vid}", None)
+            st.rerun()
 
 
 # ============================================================
@@ -334,19 +571,13 @@ def render():
     role = st.session_state.get("role", "")
     allow_hard_delete = can_hard_delete(role)
 
-    # ---- Info banner ----
     st.markdown(
         """
         <div style="background:#E3F2FD;border-left:4px solid #0B5ED7;
                     padding:12px 16px;border-radius:8px;margin-bottom:14px;
                     font-size:12.5px;color:#0D47A1;">
             ℹ️ <b>Soft Delete = ซ่อนจาก UI เท่านั้น</b> — ข้อมูลจริงยังอยู่ใน
-            <code>data/history/*.csv</code> หรือ
-            <code>DB tables</code> และ <code>voided_records</code>
-            ตามหลัก Audit Trail
-            <br>
-            🔗 <b>ไม่สับสน:</b> ทุก record ที่ถูกซ่อนจะปรากฏที่นี่ + มี badge
-            ในหน้าต้นทาง
+            DB tables + <code>voided_records</code> ตามหลัก Audit Trail
         </div>
         """,
         unsafe_allow_html=True,
@@ -365,14 +596,8 @@ def render():
             unsafe_allow_html=True,
         )
 
-    # ============================================================
-    # LOAD
-    # ============================================================
     void_df = read_voids()
 
-    # ============================================================
-    # TABS
-    # ============================================================
     if allow_hard_delete:
         t1, t2, t3, t4 = st.tabs([
             "📜 รายการที่ถูกลบ",
@@ -394,10 +619,6 @@ def render():
     with t1:
         if void_df.empty:
             st.success("✅ ไม่มีข้อมูลที่ถูก Soft Delete ในระบบ")
-            st.info(
-                "💡 เมื่อผู้ใช้กดปุ่ม 🗑️ ในหน้าใด ๆ รายการจะปรากฏที่นี่ "
-                "พร้อมตัวเลือก Restore"
-            )
         else:
             void_df = void_df.copy()
             void_df["voided_at_dt"] = pd.to_datetime(
@@ -408,7 +629,7 @@ def render():
                 "voided_at_dt", ascending=False
             ).reset_index(drop=True)
 
-            # ---- KPI ----
+            # KPI
             st.markdown("### 📊 ภาพรวม")
             n_total = len(void_df)
             breakdown = count_voids_by_type()
@@ -446,7 +667,7 @@ def render():
 
             st.markdown("---")
 
-            # ---- Filters ----
+            # Filters
             c1, c2, c3 = st.columns([1, 1, 2])
             with c1:
                 type_options = sorted(void_df["record_type"].unique().tolist())
@@ -538,11 +759,7 @@ def render():
                                     "RESTORE", "VOID_REGISTRY",
                                     str(r["record_id"]),
                                     old_value="voided", new_value="active",
-                                    reason=(
-                                        f"Restore from Void Registry — "
-                                        f"original reason: "
-                                        f"{r.get('reason', '-')}"
-                                    ),
+                                    reason=f"Restore — {r.get('reason', '-')}",
                                 )
                                 st.success(f"✅ คืนค่า `{r['record_id']}` แล้ว")
                                 st.rerun()
@@ -569,38 +786,23 @@ def render():
                         st.markdown(f"**Void ID:** `{r['void_id']}`")
                         st.markdown(f"**Record Type:** `{r['record_type']}`")
                         st.markdown(f"**Record ID:** `{r['record_id']}`")
+                        st.markdown(f"**Table:** `{_get_table_name(r['record_type'])}`")
+                        st.markdown(f"**PK:** `{TABLE_PK_MAP.get(_get_table_name(r['record_type']), '?')}`")
                         st.markdown(f"**เหตุผล:** {r.get('reason', '-')}")
                         st.markdown(f"**ผู้ลบ:** {r.get('voided_by', '-')}")
-                        st.markdown(f"**เวลาลบ:** {_fmt_dt(r.get('voided_at'))}")
-                        st.markdown(f"**Mode:** `{r.get('mode', 'soft')}`")
 
-                # ---- Hard Delete Form ----
+                # ★ v3: Hard Delete Form (inline)
                 if allow_hard_delete and st.session_state.get(
                     f"show_hd_{vid}", False
                 ):
-                    repo = _get_repo_for_type(r["record_type"])
-                    if repo is None:
-                        st.error(
-                            f"❌ ไม่พบ Repo สำหรับ `{r['record_type']}`  \n"
-                            f"💡 กรุณาแจ้งผู้พัฒนาให้เพิ่ม mapping "
-                            f"ใน `_get_repo_by_name()`"
-                        )
-                        if st.button("❌ ปิด", key=f"close_hd_{vid}"):
-                            st.session_state.pop(f"show_hd_{vid}", None)
-                            st.rerun()
-                    else:
-                        st.markdown("---")
-                        render_hard_delete_form(
-                            repo,
-                            record_id=str(r["record_id"]),
-                            record_label=f"{r['record_type']} · {r['record_id']}",
-                            key_prefix=f"voidreg_hd_{vid}",
-                            on_success=lambda _res, v=vid: _after_hard_delete(v),
-                        )
-                        if st.button("❌ ยกเลิก", key=f"cancel_hd_{vid}"):
-                            st.session_state.pop(f"show_hd_{vid}", None)
-                            st.rerun()
-                        st.markdown("---")
+                    st.markdown("---")
+                    _render_hard_delete_inline(
+                        record_type=r["record_type"],
+                        record_id=str(r["record_id"]),
+                        vid=vid,
+                        reason_default=f"Admin hard delete — {today_str()}",
+                    )
+                    st.markdown("---")
 
     # ============================================================
     # TAB 2 — CHARTS
@@ -669,14 +871,13 @@ def render():
             st.plotly_chart(fig3, use_container_width=True)
 
     # ============================================================
-    # TAB 3 — CLEANUP ORPHANS (admin only)
+    # TAB 3 — CLEANUP ORPHANS
     # ============================================================
     if t3 is not None:
         with t3:
             st.markdown("### 🧹 Cleanup Orphaned Records")
             st.caption(
-                "ค้นหาและลบ records ที่อ้างถึง entity ที่ถูกลบ — "
-                "เหมาะสำหรับการทำความสะอาดระบบเป็นระยะ"
+                "ค้นหาและลบ records ที่อ้างถึง entity ที่ถูกลบ"
             )
 
             st.markdown(
@@ -686,18 +887,14 @@ def render():
                             font-size:12.5px;color:#E65100;margin-bottom:14px;">
                     ⚠️ <b>Orphaned records คืออะไร?</b><br>
                     Records ที่ link ไปยัง entity ที่ถูกลบ เช่น<br>
-                    • Progress ที่ link ไปยัง Deliverable ที่ถูกลบ<br>
-                    • Action ที่ link ไปยัง Issue ที่ถูกลบ<br>
-                    • Payment ที่ link ไปยัง Milestone ที่ถูกลบ<br>
-                    <br>
-                    <b>ทำไมต้อง Cleanup?</b> เพื่อให้ข้อมูลสะอาด สอดคล้อง
-                    และลดความสับสนในรายงาน
+                    • Progress → Deliverable ที่ถูกลบ<br>
+                    • Action → Issue ที่ถูกลบ<br>
+                    • Payment → Milestone ที่ถูกลบ
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-            # ---- Scan button ----
             col_scan, _ = st.columns([1, 3])
             with col_scan:
                 scan = st.button(
@@ -707,16 +904,13 @@ def render():
                     key="orphan_scan",
                 )
 
-            # Cache scan result ใน session
             if scan or "orphan_scan_result" not in st.session_state:
                 with st.spinner("กำลังสแกน..."):
                     st.session_state["orphan_scan_result"] = _find_orphaned_records()
 
             orphans = st.session_state.get("orphan_scan_result", {})
-
             total_orphans = sum(len(v) for v in orphans.values())
 
-            # ---- KPI ----
             st.markdown("---")
             st.markdown("#### 📊 ผลการสแกน")
 
@@ -755,8 +949,6 @@ def render():
                 st.success("✅ ไม่พบ Orphans — ระบบสะอาด!")
             else:
                 st.markdown("---")
-
-                # ---- Breakdown by type ----
                 st.markdown("#### 📋 Breakdown ตามประเภท")
 
                 for key, label, color in ORPHAN_TYPES:
@@ -783,38 +975,17 @@ def render():
                         )
 
                 st.markdown("---")
-
-                # ---- Actions ----
                 st.markdown("#### 🧹 ดำเนินการ")
-                st.caption(
-                    "เลือกวิธีลบ — Soft Delete = ซ่อน + กู้คืนได้, "
-                    "Hard Delete = ลบถาวรพร้อม backup"
-                )
 
                 col_sd, col_hd = st.columns(2)
 
                 with col_sd:
                     with st.expander("🟡 Soft Delete All", expanded=False):
-                        st.markdown(
-                            f"""
-                            <div style="font-size:12.5px;color:#333;
-                                        margin-bottom:8px;">
-                                ซ่อน <b>{total_orphans}</b> records จาก UI<br>
-                                • ข้อมูลยังอยู่ใน DB<br>
-                                • กู้คืนได้จากหน้า 📜 รายการที่ถูกลบ<br>
-                                • ไม่มี backup
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-
                         sd_reason = st.text_input(
                             "เหตุผล (บังคับ)",
-                            value="Cleanup orphaned records — "
-                                  f"{today_str()}",
+                            value=f"Cleanup orphaned records — {today_str()}",
                             key="cleanup_sd_reason",
                         )
-
                         if st.button(
                             "🟡 Soft Delete ทั้งหมด",
                             type="primary",
@@ -832,32 +1003,17 @@ def render():
 
                 with col_hd:
                     with st.expander("🔴 Hard Delete All", expanded=False):
-                        st.markdown(
-                            f"""
-                            <div style="font-size:12.5px;color:#333;
-                                        margin-bottom:8px;">
-                                <b>ลบถาวร {total_orphans} records</b><br>
-                                • ลบทั้ง UI และ DB<br>
-                                • <b>ไม่สามารถกู้คืน</b>ได้<br>
-                                • มี backup ก่อนลบ
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-
                         hd_reason = st.text_input(
                             "เหตุผล (บังคับ, ≥ 10 ตัวอักษร)",
                             value="",
                             placeholder="เช่น ทำความสะอาดระบบหลัง migration",
                             key="cleanup_hd_reason",
                         )
-
                         hd_confirm = st.checkbox(
                             "☑️ ข้าพเจ้ายืนยันว่าต้องการลบถาวร",
                             value=False,
                             key="cleanup_hd_confirm",
                         )
-
                         if st.button(
                             "🔴 Hard Delete ทั้งหมด",
                             type="primary",
@@ -883,7 +1039,7 @@ def render():
                                 )
 
     # ============================================================
-    # TAB 4 (or 3 if not admin) — CSV EXPORT
+    # TAB 4 — CSV EXPORT
     # ============================================================
     with t4:
         st.markdown("### 📥 Export")
@@ -892,7 +1048,6 @@ def render():
             st.info("ไม่มีข้อมูล")
         else:
             st.dataframe(void_df, use_container_width=True, hide_index=True)
-
             st.download_button(
                 "⬇️ ดาวน์โหลด voided_records.csv",
                 data=void_df.to_csv(index=False).encode("utf-8-sig"),
@@ -903,19 +1058,22 @@ def render():
             )
 
         st.markdown("---")
-        st.markdown("#### 📁 ตำแหน่งไฟล์/ตารางจริง")
+        st.markdown("#### 📁 ตาราง/คอลัมน์ที่ใช้")
         st.code(
-            "DB Table: deliverable_review_history  ← Review history\n"
-            "DB Table: progress_history             ← Progress snapshots\n"
-            "DB Table: issue_history                ← Issues\n"
-            "DB Table: action_history               ← Actions\n"
-            "DB Table: meeting_history              ← Meetings\n"
-            "DB Table: resolution_history           ← Resolutions\n"
-            "DB Table: acceptance_history           ← Acceptances\n"
-            "DB Table: payment_history              ← Payments\n"
-            "DB Table: deliverable_master           ← Deliverables\n"
-            "DB Table: voided_records               ← รายการที่ถูกลบ\n"
-            "DB Table: audit_log                    ← ประวัติทั้งหมด",
+            "Table                          PK Column\n"
+            "---------------------------------------------------\n"
+            "deliverable_review_history     review_id\n"
+            "progress_history               progress_id\n"
+            "issue_history                  issue_id\n"
+            "action_history                 action_id\n"
+            "meeting_history                meeting_id\n"
+            "resolution_history             resolution_id\n"
+            "acceptance_history             acceptance_id\n"
+            "payment_history                payment_id\n"
+            "deliverable_master             deliverable_id\n"
+            "milestone_master               milestone_id\n"
+            "voided_records                 void_id\n"
+            "audit_log                      audit_id",
             language="text",
         )
 
@@ -924,10 +1082,6 @@ def render():
 # CLEANUP EXECUTION
 # ============================================================
 def _do_cleanup(orphans: dict, mode: str, reason: str, user: str):
-    """
-    ทำ cleanup ตาม mode
-    mode: "soft" | "hard"
-    """
     total = sum(len(v) for v in orphans.values())
 
     if total == 0:
@@ -935,12 +1089,7 @@ def _do_cleanup(orphans: dict, mode: str, reason: str, user: str):
         return
 
     progress = st.progress(0, text="เริ่มทำความสะอาด...")
-    stats = {
-        "total": 0,
-        "success": 0,
-        "failed": 0,
-        "errors": [],
-    }
+    stats = {"success": 0, "failed": 0, "errors": []}
     done = 0
 
     for key, label, _ in ORPHAN_TYPES:
@@ -974,7 +1123,6 @@ def _do_cleanup(orphans: dict, mode: str, reason: str, user: str):
 
     progress.empty()
 
-    # ---- Summary ----
     if stats["success"] > 0:
         st.success(
             f"✅ {mode.title()} Delete สำเร็จ — "
@@ -986,7 +1134,6 @@ def _do_cleanup(orphans: dict, mode: str, reason: str, user: str):
             for err in stats["errors"][:50]:
                 st.markdown(f"- `{err}`")
 
-    # ---- Audit ----
     try:
         append_audit(
             user,
@@ -1000,6 +1147,5 @@ def _do_cleanup(orphans: dict, mode: str, reason: str, user: str):
     except Exception:
         pass
 
-    # ---- Clear cache + rerun ----
     st.session_state.pop("orphan_scan_result", None)
     st.rerun()

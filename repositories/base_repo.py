@@ -1,12 +1,25 @@
 """
 repositories/base_repo.py — รองรับทั้ง CSV (local) และ PostgreSQL (production)
 
+★ v4 — แก้ไข:
+- 🔧 Fix: เพิ่ม `id_col` parameter ใน AppendOnlyRepo/MasterRepo constructor
+  (ชัดเจน ไม่ต้องเดา — ป้องกัน bug กับ deliverable_review_history)
+- 🔧 Fix: `_get_id_col()` รองรับ `_id_col_override` attribute
+- 🔧 Fix: `_hard_delete_db()` เพิ่ม logging + verify rowcount
+- 🔧 Fix: ห้าม silent fallback — DB mode แล้ว error → raise
+- ✨ เพิ่ม `_safe_int()` helper
+
 ★ v3:
 - ใช้ _DeleteMixin ร่วมกันระหว่าง AppendOnlyRepo และ MasterRepo
 - รองรับ DB mode (Supabase PostgreSQL) ผ่าน core.db
-- CSV mode ทำงานเหมือนเดิม 100%
-- ⚠️ Fix: กรอง field ที่ไม่ตรง schema ออกก่อน save
-  (ป้องกัน error: column "_latest_progress" does not exist)
+- กรอง field ที่ไม่ตรง schema ออกก่อน save
+
+★ v2:
+- เพิ่ม `_clean_row()` — ป้องกัน column ไม่มีใน DB
+- Force reseed / rebalance
+
+★ v1:
+- Initial: CSV-only repo
 """
 import os
 import csv
@@ -26,7 +39,6 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 # ═══════════════════════════════════════════════════════════
 _USE_DB = os.environ.get("USE_DATABASE", "false").lower() == "true"
 
-# ถ้ารันบน Streamlit Cloud → ใช้ DB อัตโนมัติ
 try:
     import streamlit as st
     if st.secrets.get("DATABASE_URL"):
@@ -59,27 +71,26 @@ def _backup(path: Path) -> Path | None:
 
 
 # ═══════════════════════════════════════════════════════════
-# ★ HELPER: กรอง row ให้ตรง schema
+# HELPERS
 # ═══════════════════════════════════════════════════════════
+def _safe_int(v, default=0) -> int:
+    """★ v4: แปลงเป็น int แบบปลอดภัย"""
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        return default
+
+
 def _clean_row(row: dict, fields: list) -> dict:
     """
     ★ v3 — กรอง row ให้เหลือเฉพาะ field ที่อยู่ใน schema
-    ป้องกัน error: column "xxx" does not exist
-
     - เก็บเฉพาะ key ที่อยู่ใน fields
     - เติม field ที่ขาดด้วย "" (empty string)
-
-    Args:
-        row: dict ที่อาจมี extra keys (เช่น display columns)
-        fields: list ของ schema fields
-
-    Returns:
-        dict ที่มีเฉพาะ keys ใน fields
+    - แปลง NaN → ""
     """
     clean = {}
     for f in fields:
         v = row.get(f, "")
-        # แปลง NaN เป็น ""
         try:
             import pandas as pd
             if pd.isna(v):
@@ -200,10 +211,27 @@ class _DeleteMixin:
         user: str,
         create_backup: bool = True,
     ) -> dict:
-        """ลบถาวร — รองรับทั้ง CSV และ DB"""
+        """
+        ลบถาวร — รองรับทั้ง CSV และ DB
+        ★ v4: ใช้ id_col ที่ชัดเจน — ถ้าไม่มี → raise (ไม่เงียบ)
+        """
         id_col = self._get_id_col()
+
         if id_col is None:
-            raise ValueError("ไม่พบ ID column")
+            raise ValueError(
+                f"❌ ไม่พบ ID column สำหรับ {self.filename} — "
+                f"กรุณาระบุ `id_col` ใน constructor"
+            )
+
+        # ★ v4: log ให้เห็นชัด
+        try:
+            import streamlit as st
+            st.caption(
+                f"🔧 Repo: `{self.table_name}` · ID col: `{id_col}` · "
+                f"Target: `{record_id}`"
+            )
+        except Exception:
+            pass
 
         if _USE_DB:
             return self._hard_delete_db(record_id, reason, user, id_col)
@@ -213,43 +241,86 @@ class _DeleteMixin:
             )
 
     def _hard_delete_db(self, record_id, reason, user, id_col):
-        """DB mode"""
-        from core.db import delete_row, get_engine
+        """
+        DB mode — ★ v4: verify rowcount + แจ้งชัดเจนถ้าลบไม่เจอ
+        """
+        from core.db import get_engine, delete_row, _q
         from core.void_registry import remove_void
         from core.audit import append_audit
         from sqlalchemy import text
+        import traceback
 
+        rid = str(record_id).strip()
         engine = get_engine()
 
+        # ── 1. Count before ──
         with engine.begin() as conn:
-            n_before = conn.execute(
-                text(f"SELECT COUNT(*) FROM {self.table_name}")
-            ).scalar()
+            n_before = _safe_int(
+                conn.execute(
+                    text(f'SELECT COUNT(*) FROM {_q(self.table_name)}')
+                ).scalar(),
+                0,
+            )
 
-        delete_row(self.table_name, id_col, str(record_id))
-
-        with engine.begin() as conn:
-            n_after = conn.execute(
-                text(f"SELECT COUNT(*) FROM {self.table_name}")
-            ).scalar()
-
+        # ── 2. DELETE ──
         try:
-            remove_void(str(record_id))
-        except Exception:
-            pass
+            deleted = delete_row(self.table_name, id_col, rid)
+        except Exception as e:
+            print(f"❌ _hard_delete_db: delete_row failed: {e}")
+            print(traceback.format_exc())
+            raise
 
+        # ── 3. Count after ──
+        with engine.begin() as conn:
+            n_after = _safe_int(
+                conn.execute(
+                    text(f'SELECT COUNT(*) FROM {_q(self.table_name)}')
+                ).scalar(),
+                0,
+            )
+
+        delta = n_before - n_after
+
+        # ── 4. ถ้าไม่มีการลบ → หา record ใกล้เคียง ──
+        if delta == 0:
+            similar = []
+            try:
+                with engine.begin() as conn:
+                    rows = conn.execute(
+                        text(f'SELECT {_q(id_col)} FROM {_q(self.table_name)} '
+                             f'WHERE {_q(id_col)} ILIKE :pat LIMIT 5'),
+                        {"pat": f"%{rid[-12:]}%"},
+                    ).fetchall()
+                    similar = [str(r[0]) for r in rows]
+            except Exception as e:
+                print(f"⚠️ similar lookup failed: {e}")
+
+            # ★ โยน exception ให้ UI รู้
+            raise ValueError(
+                f"❌ ไม่พบ record `{rid}` ในตาราง `{self.table_name}` "
+                f"(คอลัมน์ `{id_col}`)  \n"
+                + (f"ใกล้เคียง: {similar}" if similar else "ไม่พบรายการใกล้เคียง")
+            )
+
+        # ── 5. remove_void ──
+        try:
+            remove_void(rid)
+        except Exception as e:
+            print(f"⚠️ remove_void failed: {e}")
+
+        # ── 6. Audit ──
         try:
             append_audit(
-                user, "HARD_DELETE", self.table_name, record_id,
-                old_value=f"{n_before - n_after} row(s) deleted",
+                user, "HARD_DELETE", self.table_name, rid,
+                old_value=f"{delta} row(s) deleted",
                 new_value="PERMANENTLY_DELETED",
                 reason=reason,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ audit failed: {e}")
 
         return {
-            "deleted": n_before - n_after,
+            "deleted": delta,
             "backup": "",
             "rows_before": n_before,
             "rows_after": n_after,
@@ -306,7 +377,7 @@ class _DeleteMixin:
     # HARD DELETE ALL
     # --------------------------------------------------------
     def hard_delete_all(self, record_ids: list, reason: str, user: str) -> dict:
-        """ลบหลาย record — CSV mode เท่านั้น (DB ควรทำทีละอัน)"""
+        """ลบหลาย record — CSV mode เท่านั้น"""
         if _USE_DB:
             total_deleted = 0
             for rid in record_ids:
@@ -373,20 +444,39 @@ class _DeleteMixin:
 # APPEND-ONLY REPO (History)
 # ═══════════════════════════════════════════════════════════
 class AppendOnlyRepo(_DeleteMixin):
-    """History CSV — append-only"""
+    """
+    History CSV — append-only
 
-    def __init__(self, filename: str, fields: list):
+    ★ v4: เพิ่ม `id_col` parameter (optional)
+        ถ้าระบุ → ใช้เลย (ไม่ต้องเดา)
+        ถ้าไม่ระบุ → เดาแบบเดิม (backward compatible)
+    """
+
+    def __init__(self, filename: str, fields: list, id_col: str = None):
         self.filename = filename
         self.fields = fields
         self.table_name = filename.replace(".csv", "")
         self.path = DATA_DIR / "history" / filename
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
+        # ★ v4: id_col override
+        self._id_col_override = id_col
+
     def _get_id_col(self) -> str | None:
-        """หา ID column (ตัวแรกที่ลงท้าย _id และไม่ใช่ FK)"""
+        """
+        ★ v4: หา ID column
+        1. ถ้ามี override → ใช้เลย
+        2. Fallback: หาตัวแรกที่ลงท้าย _id และไม่ใช่ FK
+        """
+        # ── Priority 1: Override ──
+        if self._id_col_override:
+            return self._id_col_override
+
+        # ── Priority 2: Auto-detect ──
         for c in self.fields:
             if c.endswith("_id") and c not in (
-                "project_id", "milestone_id", "deliverable_id"
+                "project_id", "milestone_id", "deliverable_id",
+                "linked_issue_id", "meeting_id",  # FK in review
             ):
                 return c
         return None
@@ -394,10 +484,8 @@ class AppendOnlyRepo(_DeleteMixin):
     def append(self, row: dict):
         """
         Append row — รองรับทั้ง CSV และ DB
-
         ★ v3: กรอง field ที่ไม่ตรง schema ออกก่อน save
         """
-        # ⚠️ กรอง field ที่ไม่ตรง schema
         clean_row = _clean_row(row, self.fields)
 
         if _USE_DB:
@@ -446,20 +534,25 @@ class MasterRepo(_DeleteMixin):
     """
     Master CSV — overwrite ได้ (Single Source of Truth)
     ★ ใช้ DATA_DIR / "master" — ต่างจาก AppendOnlyRepo ที่ใช้ /history
+
+    ★ v4: เพิ่ม `id_col` parameter
     """
 
-    def __init__(self, filename: str, fields: list):
+    def __init__(self, filename: str, fields: list, id_col: str = None):
         self.filename = filename
         self.fields = fields
         self.table_name = filename.replace(".csv", "")
-        # ⚠️ สำคัญ: master อยู่ที่ data/master/
         self.path = DATA_DIR / "master" / filename
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        # PK = field แรก
-        self.pk_field = fields[0] if fields else None
+
+        # PK = field แรก (default) หรือ id_col ที่ระบุ
+        self.pk_field = id_col or (fields[0] if fields else None)
+        self._id_col_override = id_col
 
     def _get_id_col(self) -> str | None:
-        """Master ใช้ field แรกเป็น PK"""
+        """Master ใช้ field แรกเป็น PK (หรือ override)"""
+        if self._id_col_override:
+            return self._id_col_override
         return self.pk_field
 
     def read(self, include_voided: bool = False):
@@ -491,11 +584,8 @@ class MasterRepo(_DeleteMixin):
     def upsert(self, row: dict, key: str):
         """
         Upsert — รองรับทั้ง CSV และ DB
-
         ★ v3: กรอง field ที่ไม่ตรง schema ออกก่อน save
-        (fix bug: column "_latest_progress" does not exist)
         """
-        # ⚠️ กรอง field ที่ไม่ตรง schema ออก
         clean_row = _clean_row(row, self.fields)
 
         if _USE_DB:
