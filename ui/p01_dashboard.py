@@ -7,6 +7,13 @@
 - ★ Section 5: ตาราง Deliverable เรียงตามลำดับงาน (M1 → M5)
   + คอลัมน์ หน่วยงาน / ช่วงเวลา / TOR
 
+- 🐛 Fixed v6:
+  - ★ เรียงลำดับ Deliverable ตาม `sequence` field (ตรงกับ Excel Timeline)
+  - เพิ่ม helper `_get_sequence()` + `_sort_by_sequence()`
+  - Bar Chart ใช้ sequence ใน sort_key
+  - อัปเดต RESPONSIBLE_UNITS รองรับ DLV-M1-19, DLV-M1-20, DLV-M2-18..30
+  - Fallback: ถ้า DB ไม่มี column `sequence` → parse จาก ID อัตโนมัติ
+
 - 🐛 Fixed v5:
   - ★ Status = "Accepted" / "Closed" → actual = 100% (override progress_history)
   - S-Curve, Milestone table, Deliverable table, Bar chart ทั้งหมดใช้ logic นี้
@@ -75,6 +82,57 @@ def _effective_actual(
 
 
 # ============================================================
+# ★ v6: SEQUENCE HELPERS
+# ============================================================
+def _get_sequence(row_or_dict) -> int:
+    """
+    ดึงค่า sequence จาก row
+    ถ้าไม่มี → parse จาก deliverable_id (DLV-M1-19 → 19)
+    """
+    try:
+        val = row_or_dict.get("sequence", None)
+        if val is not None and not (isinstance(val, float) and pd.isna(val)):
+            return int(float(val))
+    except Exception:
+        pass
+
+    # Fallback: parse จาก deliverable_id
+    try:
+        did = str(row_or_dict.get("deliverable_id", ""))
+        if did.startswith("DLV-"):
+            return int(did.rsplit("-", 1)[-1])
+    except (ValueError, IndexError):
+        pass
+
+    return 9999
+
+
+def _sort_by_sequence(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    เรียงลำดับตาม: milestone_id → sequence → planned_start → deliverable_id
+    """
+    if df.empty:
+        return df
+
+    work = df.copy()
+
+    # สร้าง _sequence ถ้ายังไม่มี
+    if "_sequence" not in work.columns:
+        if "sequence" in work.columns:
+            work["_sequence"] = pd.to_numeric(
+                work["sequence"], errors="coerce"
+            ).fillna(9999).astype(int)
+        else:
+            work["_sequence"] = work.apply(_get_sequence, axis=1)
+
+    return work.sort_values(
+        ["milestone_id", "_sequence", "planned_start", "deliverable_id"],
+        ascending=[True, True, True, True],
+        na_position="last",
+    ).reset_index(drop=True)
+
+
+# ============================================================
 # ★ RESPONSIBLE UNITS (จาก Timeline TOR)
 # ============================================================
 RESPONSIBLE_UNITS = {
@@ -83,12 +141,12 @@ RESPONSIBLE_UNITS = {
     "DLV-M1-02": "คณะกรรมการ",
     "DLV-M1-03": "คณะกรรมการ",
     "DLV-M1-04": "ฝทบ.",
-    "DLV-M1-05": "กนก.",
-    "DLV-M1-06": "ฝดท.1",
-    "DLV-M1-07": "ฝกง.",
-    "DLV-M1-08": "ฝดท.2",
-    "DLV-M1-09": "กบธ.",
-    "DLV-M1-10": "ฝพธ., ฝกม.",
+    "DLV-M1-05": "10 หน่วยงานเกี่ยวข้อง",       # ★ แก้ไข
+    "DLV-M1-06": "ฝดท.1",                       # (legacy)
+    "DLV-M1-07": "ฝกง.",                        # (legacy)
+    "DLV-M1-08": "ฝดท.2",                       # (legacy)
+    "DLV-M1-09": "กบธ.",                        # (legacy)
+    "DLV-M1-10": "ฝพธ., ฝกม.",                  # (legacy)
     "DLV-M1-11": "ฝดท.1",
     "DLV-M1-12": "ฝดท.1",
     "DLV-M1-13": "ฝพธ.",
@@ -97,8 +155,9 @@ RESPONSIBLE_UNITS = {
     "DLV-M1-16": "คณะกรรมการ",
     "DLV-M1-17": "คณะกรรมการ",
     "DLV-M1-18": "คณะกรรมการ",
-    "DLV-M1-19": "-",
-    "DLV-M1-20": "-",
+    "DLV-M1-19": "คณะกรรมการ",                  # ★ ใหม่
+    "DLV-M1-20": "10 หน่วยงานเกี่ยวข้อง",       # ★ ใหม่
+
     # ═══ M2 — Progress Report I ═══
     "DLV-M2-01": "ฝดท.1",
     "DLV-M2-02": "ฝยป.",
@@ -117,19 +176,21 @@ RESPONSIBLE_UNITS = {
     "DLV-M2-15": "คณะกรรมการ",
     "DLV-M2-16": "คณะกรรมการ",
     "DLV-M2-17": "คณะกรรมการ",
-    "DLV-M2-18": "ฝพธ.",
-    "DLV-M2-19": "ฝพธ.",
-    "DLV-M2-20": "สตส.",
-    "DLV-M2-21": "DPO",
-    "DLV-M2-22": "ฝบร./กบร.",
-    "DLV-M2-23": "ฝกม.",
-    "DLV-M2-24": "ฝกง.",
-    "DLV-M2-25": "ฝทบ.",
-    "DLV-M2-26": "ฝยป./กบค.",
-    "DLV-M2-27": "ฝดท.1",
-    "DLV-M2-28": "ฝดท.2",
-    "DLV-M2-29": "คณะกรรมการ",
-    "DLV-M2-30": "คณะกรรมการ",
+    # ★ 1.6.x Interview 10 Departments (ใหม่)
+    "DLV-M2-18": "-",                           # ★ ใหม่
+    "DLV-M2-19": "ฝพธ.",                        # ★ ใหม่
+    "DLV-M2-20": "สตส.",                        # ★ ใหม่
+    "DLV-M2-21": "DPO",                         # ★ ใหม่
+    "DLV-M2-22": "ฝบร./กบร.",                   # ★ ใหม่
+    "DLV-M2-23": "ฝกม.",                        # ★ ใหม่
+    "DLV-M2-24": "ฝกง.",                        # ★ ใหม่
+    "DLV-M2-25": "ฝทบ.",                        # ★ ใหม่
+    "DLV-M2-26": "ฝยป./กบค.",                   # ★ ใหม่
+    "DLV-M2-27": "ฝดท.1",                       # ★ ใหม่
+    "DLV-M2-28": "ฝดท.2",                       # ★ ใหม่
+    "DLV-M2-29": "คณะกรรมการ",                  # ★ Monthly Report ต.ค.
+    "DLV-M2-30": "คณะกรรมการ",                  # ★ Monthly Report พ.ย.
+
     # ═══ M3 — Interim Report ═══
     "DLV-M3-01": "ฝดท.1",
     "DLV-M3-02": "สตส.",
@@ -150,7 +211,8 @@ RESPONSIBLE_UNITS = {
     "DLV-M3-17": "คณะกรรมการ",
     "DLV-M3-18": "คณะกรรมการ",
     "DLV-M3-19": "คณะกรรมการ",
-    "DLV-M3-20": "คณะกรรมการ",
+    "DLV-M3-20": "คณะกรรมการ",                  # ★ Monthly Report ม.ค.
+
     # ═══ M4 — Progress Report II ═══
     "DLV-M4-01": "คณะกรรมการ",
     "DLV-M4-02": "ฝดท.1",
@@ -168,9 +230,10 @@ RESPONSIBLE_UNITS = {
     "DLV-M4-14": "คณะกรรมการ",
     "DLV-M4-15": "คณะกรรมการ",
     "DLV-M4-16": "คณะกรรมการ",
-    "DLV-M4-17": "คณะกรรมการ",
-    "DLV-M4-18": "คณะกรรมการ",
-    "DLV-M4-19": "คณะกรรมการ",
+    "DLV-M4-17": "คณะกรรมการ",                  # ★ Monthly Report มี.ค.
+    "DLV-M4-18": "คณะกรรมการ",                  # ★ Monthly Report เม.ย.
+    "DLV-M4-19": "คณะกรรมการ",                  # ★ Monthly Report พ.ค.
+
     # ═══ M5 — Final Report ═══
     "DLV-M5-01": "คณะกรรมการ",
     "DLV-M5-02": "ฝดท.1",
@@ -188,21 +251,22 @@ RESPONSIBLE_UNITS = {
 
 # คำอธิบายตัวย่อหน่วยงาน
 UNIT_REFERENCE = {
-    "คณะกรรมการ": "คณะกรรมการตรวจรับ / ที่ปรึกษาโครงการ",
-    "ฝทบ.":       "ฝ่ายทรัพยากรบุคคล",
-    "กนก.":       "กองนิติการ",
-    "ฝดท.1":      "ฝ่ายดิจิทัล 1 (ธุรกิจดิจิทัล)",
-    "ฝดท.2":      "ฝ่ายดิจิทัล 2 (IT / Network / Security)",
-    "ฝกง.":       "ฝ่ายการเงิน",
-    "กบธ.":       "ฝ่ายบริหารธุรกิจใหม่",
-    "ฝพธ.":       "ฝ่ายพัฒนาธุรกิจ / บริหารความเสี่ยง",
-    "ฝกม.":       "ฝ่ายกฎหมาย",
-    "ฝยป.":       "ฝ่ายยุทธศาสตร์และแผนงาน",
-    "สตส.":       "สำนักตรวจสอบภายใน",
-    "กกด.":       "กองกำกับดูแล / Compliance",
-    "DPO":        "Data Protection Officer",
-    "ฝบร./กบร.":  "ฝ่ายบำรุงรักษา / กองบำรุงรักษา",
-    "ฝยป./กบค.":  "ฝ่ายยุทธศาสตร์และแผนงาน / กองแผน",
+    "คณะกรรมการ":                 "คณะกรรมการตรวจรับ / ที่ปรึกษาโครงการ",
+    "10 หน่วยงานเกี่ยวข้อง":       "10 หน่วยงานภายใน กทพ. ที่เกี่ยวข้อง",
+    "ฝทบ.":                       "ฝ่ายทรัพยากรบุคคล",
+    "กนก.":                       "กองนิติการ",
+    "ฝดท.1":                      "ฝ่ายดิจิทัล 1 (ธุรกิจดิจิทัล)",
+    "ฝดท.2":                      "ฝ่ายดิจิทัล 2 (IT / Network / Security)",
+    "ฝกง.":                       "ฝ่ายการเงิน",
+    "กบธ.":                       "ฝ่ายบริหารธุรกิจใหม่",
+    "ฝพธ.":                       "ฝ่ายพัฒนาธุรกิจ / บริหารความเสี่ยง",
+    "ฝกม.":                       "ฝ่ายกฎหมาย",
+    "ฝยป.":                       "ฝ่ายยุทธศาสตร์และแผนงาน",
+    "สตส.":                       "สำนักตรวจสอบภายใน",
+    "กกด.":                       "กองกำกับดูแล / Compliance",
+    "DPO":                        "Data Protection Officer",
+    "ฝบร./กบร.":                  "ฝ่ายบำรุงรักษา / กองบำรุงรักษา",
+    "ฝยป./กบค.":                  "ฝ่ายยุทธศาสตร์และแผนงาน / กองแผน",
 }
 
 
@@ -514,6 +578,15 @@ def render():
     iss_df = IssueRepo().read()
     mtg_df = MeetingRepo().read()
     res_df = ResolutionRepo().read()
+
+    # ★ v6: เตรียม _sequence ใน dl_df ทันที
+    if not dl_df.empty:
+        if "sequence" in dl_df.columns:
+            dl_df["_sequence"] = pd.to_numeric(
+                dl_df["sequence"], errors="coerce"
+            ).fillna(9999).astype(int)
+        else:
+            dl_df["_sequence"] = dl_df.apply(_get_sequence, axis=1)
 
     # ============================================================
     # ★ คำนวณ S-Curve + KPI ก่อน (ใช้ร่วมกันทั้งหน้า)
@@ -952,7 +1025,7 @@ def render():
 
     # ============================================================
     # SECTION 5 — DELIVERABLE PROGRESS TABLE
-    # ★ v5: ใช้ _effective_actual()
+    # ★ v6: ใช้ _sort_by_sequence() เรียงตาม Excel
     # ============================================================
     st.markdown("---")
     st.markdown("### 📈 ความคืบหน้าแต่ละ Deliverable")
@@ -967,9 +1040,9 @@ def render():
         dl_view = dl_view[
             dl_view["milestone_id"].astype(str).str.startswith("MLS")
         ].copy()
-        dl_view = dl_view.sort_values(
-            ["milestone_id", "deliverable_id"]
-        ).reset_index(drop=True)
+
+        # ★ v6: เรียงตาม sequence
+        dl_view = _sort_by_sequence(dl_view)
 
         # ---- Filters ----
         c1, c2, c3 = st.columns([1, 1, 2])
@@ -1012,6 +1085,9 @@ def render():
                     lambda x: s in RESPONSIBLE_UNITS.get(x, "").lower()
                 )
             ]
+
+        # ★ v6: re-sort หลัง filter
+        dl_view = _sort_by_sequence(dl_view)
 
         # ---- Build rows ----
         rows = []
@@ -1058,7 +1134,10 @@ def render():
         if not rows:
             st.info("ไม่พบรายการที่ตรงกับตัวกรอง")
         else:
-            st.caption(f"แสดง **{len(rows)}** รายการ (เรียงตามลำดับงาน)")
+            st.caption(
+                f"แสดง **{len(rows)}** รายการ "
+                f"(เรียงตามลำดับงานตาม Excel Timeline)"
+            )
 
             tbl_df = pd.DataFrame(rows)
             st.dataframe(
@@ -1092,7 +1171,7 @@ def render():
             )
 
         # ---- Bar Chart ----
-        # ★ v5: ใช้ _effective_actual()
+        # ★ v6: ใช้ sequence ใน sort_key
         st.markdown("---")
         st.markdown("#### 📊 Weight vs Progress (เรียงตามลำดับงาน)")
 
@@ -1106,8 +1185,10 @@ def render():
                     str(d.get("status", "") or ""),
                     prog_df,
                 )
+                # ★ v6: sort_key ใช้ sequence
+                seq = int(d.get("_sequence", 9999))
                 chart_rows.append({
-                    "sort_key": f"{d['milestone_id']}|{did}",
+                    "sort_key": f"{d['milestone_id']}|{seq:04d}|{did}",
                     "label":    f"{did} · {str(d['deliverable_name'])[:40]}",
                     "weight":   float(d.get("weight", 0) or 0),
                     "actual":   actual,
