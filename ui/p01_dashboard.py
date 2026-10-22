@@ -904,7 +904,7 @@ def render():
     st.markdown("### 📈 S-Curve: แผนสะสม vs จริงสะสม")
     st.caption(
         "เปรียบเทียบแผนสะสมตาม TOR กับผลงานจริงสะสม — "
-        "★ v9.2: Accepted/Closed ที่ finish_date ยังเป็นอนาคต → cap ที่ today "
+        ": Accepted/Closed ที่ finish_date ยังเป็นอนาคต → cap ที่ today "
         "(นับ 100% ทันที)"
     )
 
