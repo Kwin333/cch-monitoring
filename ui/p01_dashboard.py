@@ -1,15 +1,19 @@
 """Dashboard — Executive view ครบถ้วน รวมงาน 1.3 (Meeting/Resolution) + 1.5 (Acceptance/Payment)
 
-★ v9.1 — แก้ไข (2026-10-22):
+★ v9.2 — แก้ไข (2026-10-22):
+- ✨ Accepted/Closed ที่ finish_date ยังเป็นอนาคต → cap ที่ today
+  → นับ 100% ทันที (แก้เคส DLV-M1-06 planned_finish=2026-10-31 แต่วันนี้ 2026-10-22)
+- ✨ ทำให้ 🎯 Overall Progress = 📗 จริง ณ วันนี้ (S-Curve) ตรงกัน 100%
+  แม้งานที่ปิดก่อน planned_finish
+
+★ v9.1 — แก้ไข:
 - 🔧 Fix: TypeError "Cannot compare NaT with datetime.date object"
   → `_to_date()` คืน None แทน NaT (ตรวจ pd.isna ก่อน .date())
   → `_actual_at()` เพิ่ม defensive check `pd.isna(finish_date)` → None
-  → เปลี่ยน `elif not finish_date` เป็น `elif finish_date is None` (ชัดเจนกว่า)
+  → เปลี่ยน `elif not finish_date` เป็น `elif finish_date is None`
 
 ★ v9 — แก้ไข:
 - ✨ S-Curve ใช้ `actual_finish` ก่อน `planned_finish` (priority)
-- ✨ งาน Accepted ที่ปิดก่อน planned_finish ถูกนับ 100% ใน S-Curve
-- ✨ ทำให้ 🎯 Overall Progress = 📗 Actual ณ วันนี้
 
 ★ v8: โหลด project_master + milestone_master จาก DB ผ่าน MasterRepo
       + Early Warning Summary fallback acc_df
@@ -418,7 +422,7 @@ def _load_milestones():
 
 
 # ============================================================
-# ★ v9.1: S-Curve (actual_finish priority + NaT-safe)
+# ★ v9.2: S-Curve (actual_finish priority + NaT-safe + cap-at-today)
 # ============================================================
 def _compute_scurve(proj, dl_df, prog_df, ms_df):
     start_d = _to_date(proj["project_start_date"]) or date(2026, 8, 18)
@@ -488,6 +492,9 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
         # Priority 1: Accepted / Closed
         # ★ v9: ใช้ actual_finish ก่อน planned_finish
         # ★ v9.1: กัน NaT
+        # ★ v9.2: ถ้า finish_date ยังเป็นอนาคต (เทียบกับ today)
+        #   → cap ที่ today เพราะ Accepted แล้วถือว่าปิดงานจริงแล้ว
+        #   ทำให้ S-Curve นับ 100% ทันทีที่ Accepted
         # ═══════════════════════════════════════════════════════
         for did, status in status_map.items():
             if str(status) not in FINAL_STATUSES:
@@ -500,6 +507,12 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
             # ★ v9.1: กัน NaT (ถ้า _to_date ยังหลุดมา)
             if finish_date is not None and pd.isna(finish_date):
                 finish_date = None
+
+            # ★ v9.2: ถ้า finish_date เป็นอนาคต → ถือว่าปิดงานแล้ว (cap ที่ today)
+            #   เหตุผล: status = Accepted/Closed แล้ว → งานเสร็จจริง
+            #   planned_finish ในอนาคตไม่ควรกีดกันไม่ให้นับ weight
+            if finish_date is not None and finish_date > today:
+                finish_date = today
 
             if finish_date is not None and finish_date <= cutoff_date:
                 actual_map[did] = 100.0
@@ -891,7 +904,8 @@ def render():
     st.markdown("### 📈 S-Curve: แผนสะสม vs จริงสะสม")
     st.caption(
         "เปรียบเทียบแผนสะสมตาม TOR กับผลงานจริงสะสม — "
-        "★ v9.1: เส้น Actual ขึ้นตาม actual_finish (ถ้ามี) หรือ planned_finish"
+        "★ v9.2: Accepted/Closed ที่ finish_date ยังเป็นอนาคต → cap ที่ today "
+        "(นับ 100% ทันที)"
     )
 
     plan_today = planned_pct
