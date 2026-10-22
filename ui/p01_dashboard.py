@@ -1,25 +1,25 @@
 """Dashboard — Executive view ครบถ้วน รวมงาน 1.3 (Meeting/Resolution) + 1.5 (Acceptance/Payment)
 
-★ v9 — แก้ไข (2026-10-22):
-- 🔧 Fix: S-Curve ไม่นับงาน Accepted ที่ planned_finish ยังไม่ถึง
-  แม้ actual_finish จะผ่านมาแล้ว
-- ✨ เพิ่ม `dl_actual_finish` mapping — ใช้ actual_finish เป็น priority แรก
-- ✨ `_actual_at()` ใช้ `actual_finish or planned_finish` เป็น finish_date
-  → งานที่ Accepted แล้วแต่ปิดก่อน planned_finish จะถูกนับ 100%
-- ✨ ทำให้ 🎯 Overall Progress = 📗 Actual ณ วันนี้ (S-Curve) ตรงกัน
-- ✨ เพิ่ม comment log แสดงจำนวน Accepted ที่ใช้ actual_finish
-- ✅ ไม่กระทบฟังก์ชันอื่น (Milestone table, Deliverable table, Penalty, ฯลฯ)
+★ v9.1 — แก้ไข (2026-10-22):
+- 🔧 Fix: TypeError "Cannot compare NaT with datetime.date object"
+  → `_to_date()` คืน None แทน NaT (ตรวจ pd.isna ก่อน .date())
+  → `_actual_at()` เพิ่ม defensive check `pd.isna(finish_date)` → None
+  → เปลี่ยน `elif not finish_date` เป็น `elif finish_date is None` (ชัดเจนกว่า)
 
-เวอร์ชันก่อนหน้า:
-- ★ v8: โหลด project_master + milestone_master จาก DB ผ่าน MasterRepo
-  + Early Warning Summary fallback acc_df
-- ★ v7: S-Curve เส้น Actual ขึ้นตาม planned_finish, Footer Bangkok timezone
-- ★ v6: RESPONSIBLE_UNITS อัปเดตตาม ID ใหม่ + ใช้ sequence จาก DB
-- ★ v5: Status = "Accepted" / "Closed" → actual = 100%
-- ★ v4: WEEKLY_PLAN_PCT normalize ให้ผลรวม = 100.00%
-- ★ v3: Planned (ตามเวลา) ใช้ S-Curve แทน Linear
-- ★ v2: S-Curve ใช้ `update_date` แทน `timestamp`
-- ★ v1: ใช้ add_shape + add_annotation แทน add_vline
+★ v9 — แก้ไข:
+- ✨ S-Curve ใช้ `actual_finish` ก่อน `planned_finish` (priority)
+- ✨ งาน Accepted ที่ปิดก่อน planned_finish ถูกนับ 100% ใน S-Curve
+- ✨ ทำให้ 🎯 Overall Progress = 📗 Actual ณ วันนี้
+
+★ v8: โหลด project_master + milestone_master จาก DB ผ่าน MasterRepo
+      + Early Warning Summary fallback acc_df
+★ v7: S-Curve เส้น Actual ขึ้นตาม planned_finish, Footer Bangkok timezone
+★ v6: RESPONSIBLE_UNITS อัปเดตตาม ID ใหม่ + ใช้ sequence จาก DB
+★ v5: Status = "Accepted" / "Closed" → actual = 100%
+★ v4: WEEKLY_PLAN_PCT normalize ให้ผลรวม = 100.00%
+★ v3: Planned (ตามเวลา) ใช้ S-Curve แทน Linear
+★ v2: S-Curve ใช้ `update_date` แทน `timestamp`
+★ v1: ใช้ add_shape + add_annotation แทน add_vline
 """
 import streamlit as st
 import pandas as pd
@@ -322,8 +322,27 @@ def _pct(num, den):
 
 
 def _to_date(s):
+    """
+    ★ v9.1: ป้องกัน NaT
+    - pd.to_datetime(None/""/NaN/invalid) คืน NaT โดยไม่ throw exception
+    - ต้อง return None (ไม่ใช่ NaT) เพื่อให้การเปรียบเทียบวันที่ทำงานได้
+    """
     try:
-        return pd.to_datetime(s).date()
+        # None / empty / NaN
+        if s is None:
+            return None
+        if isinstance(s, float) and pd.isna(s):
+            return None
+        if isinstance(s, str) and s.strip() == "":
+            return None
+
+        result = pd.to_datetime(s, errors="coerce")
+
+        # NaT → return None
+        if result is None or pd.isna(result):
+            return None
+
+        return result.date()
     except Exception:
         return None
 
@@ -399,7 +418,7 @@ def _load_milestones():
 
 
 # ============================================================
-# ★ v9: S-Curve (แก้ priority: actual_finish ก่อน planned_finish)
+# ★ v9.1: S-Curve (actual_finish priority + NaT-safe)
 # ============================================================
 def _compute_scurve(proj, dl_df, prog_df, ms_df):
     start_d = _to_date(proj["project_start_date"]) or date(2026, 8, 18)
@@ -441,7 +460,7 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
     # ═══════════════════════════════════════════════════════════
     dl_start = {}
     dl_finish = {}
-    dl_actual_finish = {}   # ★ v9: ใหม่ — ใช้ actual_finish เป็น priority แรก
+    dl_actual_finish = {}   # ★ v9: actual_finish priority
     for _, d in dl_filtered.iterrows():
         did = str(d["deliverable_id"])
         ps = _to_date(d.get("planned_start"))
@@ -468,9 +487,7 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
         # ═══════════════════════════════════════════════════════
         # Priority 1: Accepted / Closed
         # ★ v9: ใช้ actual_finish ก่อน planned_finish
-        #   ถ้า actual_finish มีและ <= cutoff → นับ 100%
-        #   ถ้าไม่มี actual_finish → fallback planned_finish
-        #   ถ้าไม่มีทั้งคู่ → ใช้ planned_start
+        # ★ v9.1: กัน NaT
         # ═══════════════════════════════════════════════════════
         for did, status in status_map.items():
             if str(status) not in FINAL_STATUSES:
@@ -480,11 +497,15 @@ def _compute_scurve(proj, dl_df, prog_df, ms_df):
             planned_f = dl_finish.get(did)
             finish_date = actual_f or planned_f     # ★ v9: priority
 
-            if finish_date and finish_date <= cutoff_date:
+            # ★ v9.1: กัน NaT (ถ้า _to_date ยังหลุดมา)
+            if finish_date is not None and pd.isna(finish_date):
+                finish_date = None
+
+            if finish_date is not None and finish_date <= cutoff_date:
                 actual_map[did] = 100.0
-            elif not finish_date:
+            elif finish_date is None:
                 start_date = dl_start.get(did)
-                if start_date and start_date <= cutoff_date:
+                if start_date is not None and not pd.isna(start_date) and start_date <= cutoff_date:
                     actual_map[did] = 100.0
 
         # ═══════════════════════════════════════════════════════
@@ -870,7 +891,7 @@ def render():
     st.markdown("### 📈 S-Curve: แผนสะสม vs จริงสะสม")
     st.caption(
         "เปรียบเทียบแผนสะสมตาม TOR กับผลงานจริงสะสม — "
-        "★ v9: เส้น Actual ขึ้นตาม actual_finish (ถ้ามี) หรือ planned_finish"
+        "★ v9.1: เส้น Actual ขึ้นตาม actual_finish (ถ้ามี) หรือ planned_finish"
     )
 
     plan_today = planned_pct
